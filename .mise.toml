@@ -1,0 +1,7 @@
+[tools]
+go = "1.26"
+actionlint = "latest"
+goreleaser = "latest"
+task = "latest"
+zizmor = "latest"
+"github:rvben/rumdl" = "latest"
