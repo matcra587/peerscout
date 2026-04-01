@@ -17,10 +17,6 @@ formats and configuration management.
 
 ### Homebrew
 
-> [!NOTE]
-> The Homebrew tap requires the repository to be public.
-> Until then, use one of the methods below.
-
 ```bash
 brew install matcra587/tap/peerscout
 ```
