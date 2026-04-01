@@ -1,24 +1,18 @@
 package main
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 	"github.com/BurntSushi/toml"
-	"github.com/gechr/clib/terminal"
 	"github.com/gechr/clib/theme"
 	"github.com/gechr/clog"
 	"github.com/matcra587/peerscout/internal/config"
 	"github.com/matcra587/peerscout/internal/dirs"
-	"github.com/matcra587/peerscout/internal/polkachu"
 	"github.com/spf13/cobra"
 )
 
@@ -29,7 +23,6 @@ func configCmd() *cobra.Command {
 		GroupID: "config",
 	}
 
-	cmd.AddCommand(configInitCmd())
 	cmd.AddCommand(configListCmd())
 	cmd.AddCommand(configGetCmd())
 	cmd.AddCommand(configSetCmd())
@@ -163,126 +156,22 @@ func configUnsetCmd() *cobra.Command {
 		ValidArgsFunction: completeConfigKeys,
 		RunE: func(_ *cobra.Command, args []string) error {
 			cfgPath := resolveConfigPath()
-			return modifyConfigFile(cfgPath, func(doc map[string]any) {
+			var remaining int
+			err := modifyConfigFile(cfgPath, func(doc map[string]any) {
 				delete(doc, args[0])
+				remaining = len(doc)
 			})
+			if err != nil {
+				return err
+			}
+			if remaining == 0 {
+				if err := os.Remove(cfgPath); err == nil {
+					clog.Info().Path("path", cfgPath).Msg("config file removed (empty)")
+				}
+			}
+			return nil
 		},
 	}
-}
-
-// ------------------------------------------------------------------
-// config init
-// ------------------------------------------------------------------
-
-func configInitCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Interactive first-run setup",
-		Args:  cobra.NoArgs,
-		RunE:  runConfigInit,
-	}
-
-	cmd.Flags().String("network", "", "Blockchain network")
-	cmd.Flags().String("output-path", "", "Config file output path (default: XDG config dir)")
-
-	return cmd
-}
-
-func runConfigInit(cmd *cobra.Command, _ []string) error {
-	cfgPath, err := resolveConfigOutputPath(cmd)
-	if err != nil {
-		return err
-	}
-
-	interactive := terminal.Is(os.Stdout) && !cmd.Flags().Changed("network")
-
-	if interactive {
-		return runConfigInitInteractive(cfgPath)
-	}
-	return runConfigInitFromFlags(cmd, cfgPath)
-}
-
-func runConfigInitInteractive(cfgPath string) error {
-	if _, err := os.Stat(cfgPath); err == nil {
-		var overwrite bool
-		if err := huh.NewConfirm().
-			Title("Overwrite existing config?").
-			Description(cfgPath).
-			Affirmative("Overwrite").
-			Negative("Keep existing").
-			Value(&overwrite).
-			Run(); err != nil {
-			return err
-		}
-		if !overwrite {
-			clog.Info().Msg("aborted - existing config unchanged")
-			return nil
-		}
-	}
-
-	var chains []string
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	client := polkachu.NewClient()
-	fetched, err := client.ListChains(ctx)
-	if err != nil {
-		clog.Warn().Err(err).Msg("could not fetch networks - using text input instead")
-	} else {
-		chains = fetched
-	}
-
-	var network string
-
-	var networkField huh.Field
-	if len(chains) > 0 {
-		opts := make([]huh.Option[string], len(chains))
-		for i, c := range chains {
-			opts[i] = huh.NewOption(c, c)
-		}
-		networkField = huh.NewSelect[string]().
-			Title("Network").
-			Description("Type / to filter").
-			Options(opts...).
-			Height(12).
-			Value(&network)
-	} else {
-		networkField = huh.NewInput().
-			Title("Network").
-			Description("e.g. cosmos, osmosis, celestia").
-			Value(&network).
-			Validate(func(s string) error {
-				if s == "" {
-					return errors.New("network is required")
-				}
-				return nil
-			})
-	}
-
-	if err := huh.NewForm(huh.NewGroup(networkField)).Run(); err != nil {
-		return err
-	}
-
-	doc := map[string]any{
-		"network": network,
-	}
-
-	return writeConfigTOML(cfgPath, doc)
-}
-
-func runConfigInitFromFlags(cmd *cobra.Command, cfgPath string) error {
-	if _, err := os.Stat(cfgPath); err == nil {
-		return fmt.Errorf("config file already exists at %s - delete it first or use --output-path", cfgPath)
-	}
-
-	network, _ := cmd.Flags().GetString("network")
-
-	doc := make(map[string]any)
-	if network != "" {
-		doc["network"] = network
-	}
-
-	return writeConfigTOML(cfgPath, doc)
 }
 
 // ------------------------------------------------------------------
@@ -295,7 +184,13 @@ func configPathCmd() *cobra.Command {
 		Short: "Print the config file path",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			fmt.Fprintln(cmd.OutOrStdout(), resolveConfigPath())
+			path := resolveConfigPath()
+			w := cmd.OutOrStdout()
+			if _, err := os.Stat(path); err != nil {
+				fmt.Fprintf(w, "%s (not found)\n", path)
+			} else {
+				fmt.Fprintln(w, path)
+			}
 			return nil
 		},
 	}
