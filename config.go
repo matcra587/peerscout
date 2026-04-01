@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -136,9 +138,17 @@ func configSetCmd() *cobra.Command {
 		Args:              cobra.ExactArgs(2),
 		ValidArgsFunction: completeConfigKeys,
 		RunE: func(_ *cobra.Command, args []string) error {
+			key, val := args[0], args[1]
+			if !slices.Contains(configKeys, key) {
+				return fmt.Errorf("unknown config key %q - valid keys: %s", key, strings.Join(configKeys, ", "))
+			}
+			typed, err := parseConfigValue(key, val)
+			if err != nil {
+				return err
+			}
 			cfgPath := resolveConfigPath()
 			return modifyConfigFile(cfgPath, func(doc map[string]any) {
-				doc[args[0]] = args[1]
+				doc[key] = typed
 			})
 		},
 	}
@@ -156,6 +166,9 @@ func configUnsetCmd() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeConfigKeys,
 		RunE: func(_ *cobra.Command, args []string) error {
+			if !slices.Contains(configKeys, args[0]) {
+				return fmt.Errorf("unknown config key %q - valid keys: %s", args[0], strings.Join(configKeys, ", "))
+			}
 			cfgPath := resolveConfigPath()
 			var remaining int
 			err := modifyConfigFile(cfgPath, func(doc map[string]any) {
@@ -207,6 +220,19 @@ var configKeys = []string{
 
 var configDescriptions = map[string]string{
 	"count": "Number of peers to return",
+}
+
+func parseConfigValue(key, val string) (any, error) {
+	switch key {
+	case "count":
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("count must be a positive integer, got %q", val)
+		}
+		return n, nil
+	default:
+		return val, nil
+	}
 }
 
 func completeConfigKeys(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
