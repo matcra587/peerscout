@@ -216,6 +216,7 @@ func findCmd() *cobra.Command {
   $ peerscout find cosmos -f json`,
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeNetworks,
+		Annotations:       map[string]string{"clib": "dynamic-args='network'"},
 		RunE:              runFind,
 	}
 
