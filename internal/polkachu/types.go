@@ -12,12 +12,19 @@ type ChainDetail struct {
 
 // PolkachuServices describes the services Polkachu offers for a chain.
 type PolkachuServices struct {
+	Seed      ServiceSeed   `json:"seed"`
 	LivePeers ServiceStatus `json:"live_peers"`
 }
 
 // ServiceStatus indicates whether a Polkachu service is active.
 type ServiceStatus struct {
 	Active bool `json:"active"`
+}
+
+// ServiceSeed holds the seed node details for a chain.
+type ServiceSeed struct {
+	Active bool   `json:"active"`
+	Seed   string `json:"seed"`
 }
 
 // ChainLivePeers holds the live peers response for a chain.

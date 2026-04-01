@@ -187,6 +187,9 @@ func findCmd() *cobra.Command {
   # Return 10 peers
   $ peerscout find cosmos -n 10
 
+  # Get the seed node instead
+  $ peerscout find cosmos --seed-node
+
   # Comma-separated for config files
   $ peerscout find cosmos -f csv
 
@@ -197,9 +200,13 @@ func findCmd() *cobra.Command {
 	}
 
 	cmd.Flags().IntP("count", "n", 5, "Number of peers to return")
+	cmd.Flags().Bool("seed-node", false, "Return the seed node instead of live peers")
 	cobracli.Extend(cmd.Flags().Lookup("count"), cobracli.FlagExtra{
 		Placeholder: "N",
 		Terse:       "peer count",
+	})
+	cobracli.Extend(cmd.Flags().Lookup("seed-node"), cobracli.FlagExtra{
+		Terse: "seed node instead of peers",
 	})
 
 	return cmd
@@ -238,6 +245,29 @@ func runFind(cmd *cobra.Command, args []string) error {
 
 	if !slices.Contains(chains, network) {
 		return fmt.Errorf("unknown network %q - run 'peerscout list' to see all supported networks", network)
+	}
+
+	seedNode, _ := cmd.Flags().GetBool("seed-node")
+	if seedNode {
+		detail, err := client.GetChainDetail(ctx, network)
+		if err != nil {
+			return fmt.Errorf("fetching chain detail: %w", err)
+		}
+		if !detail.Services.Seed.Active {
+			return fmt.Errorf("seed node not available for %q", network)
+		}
+
+		w := cmd.OutOrStdout()
+		switch outputFormat(cmd) {
+		case "json":
+			return output.RenderJSON(w, map[string]any{
+				"network": network,
+				"seed":    detail.Services.Seed.Seed,
+			})
+		default:
+			fmt.Fprintln(w, detail.Services.Seed.Seed)
+		}
+		return nil
 	}
 
 	count := cfg.Count
