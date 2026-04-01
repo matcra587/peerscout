@@ -91,6 +91,17 @@ Use `-q`/`--quiet` to suppress all non-data output.
 
 Data sourced from the [Polkachu API v2](https://polkachu.com).
 
+## Roadmap
+
+Feature parity with [py_peerscout](https://github.com/matcra587/py_peerscout),
+rebuilt incrementally:
+
+- [ ] Geolocation filtering - filter peers by country/region
+- [ ] Latency probing - ICMP with TCP fallback
+- [ ] Peer validation - verify peers are reachable
+- [ ] Daemon mode - systemd service with configurable interval
+- [ ] Metrics - emit alerts when peers become unviable
+
 ## Development
 
 ```bash
