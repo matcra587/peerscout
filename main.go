@@ -201,6 +201,8 @@ func findCmd() *cobra.Command {
 
 	cmd.Flags().IntP("count", "n", 5, "Number of peers to return")
 	cmd.Flags().Bool("seed-node", false, "Return the seed node instead of live peers")
+	cmd.Flags().Bool("state-sync", false, "Return the state-sync RPC endpoint")
+	cmd.Flags().Bool("addrbook", false, "Return the addrbook download URL")
 	cobracli.Extend(cmd.Flags().Lookup("count"), cobracli.FlagExtra{
 		Placeholder: "N",
 		Terse:       "peer count",
@@ -208,6 +210,13 @@ func findCmd() *cobra.Command {
 	cobracli.Extend(cmd.Flags().Lookup("seed-node"), cobracli.FlagExtra{
 		Terse: "seed node instead of peers",
 	})
+	cobracli.Extend(cmd.Flags().Lookup("state-sync"), cobracli.FlagExtra{
+		Terse: "state-sync RPC endpoint",
+	})
+	cobracli.Extend(cmd.Flags().Lookup("addrbook"), cobracli.FlagExtra{
+		Terse: "addrbook download URL",
+	})
+	cmd.MarkFlagsMutuallyExclusive("seed-node", "state-sync", "addrbook")
 
 	return cmd
 }
@@ -248,13 +257,32 @@ func runFind(cmd *cobra.Command, args []string) error {
 	}
 
 	seedNode, _ := cmd.Flags().GetBool("seed-node")
-	if seedNode {
+	stateSync, _ := cmd.Flags().GetBool("state-sync")
+	addrbook, _ := cmd.Flags().GetBool("addrbook")
+
+	if seedNode || stateSync || addrbook {
 		detail, err := client.GetChainDetail(ctx, network)
 		if err != nil {
 			return fmt.Errorf("fetching chain detail: %w", err)
 		}
-		if !detail.Services.Seed.Active {
-			return fmt.Errorf("seed node not available for %q", network)
+
+		var key, value string
+		switch {
+		case seedNode:
+			if !detail.Services.Seed.Active {
+				return fmt.Errorf("seed node not available for %q", network)
+			}
+			key, value = "seed", detail.Services.Seed.Seed
+		case stateSync:
+			if !detail.Services.StateSync.Active {
+				return fmt.Errorf("state-sync not available for %q", network)
+			}
+			key, value = "state_sync", detail.Services.StateSync.Node
+		case addrbook:
+			if !detail.Services.Addrbook.Active {
+				return fmt.Errorf("addrbook not available for %q", network)
+			}
+			key, value = "addrbook", detail.Services.Addrbook.DownloadURL
 		}
 
 		w := cmd.OutOrStdout()
@@ -262,10 +290,10 @@ func runFind(cmd *cobra.Command, args []string) error {
 		case "json":
 			return output.RenderJSON(w, map[string]any{
 				"network": network,
-				"seed":    detail.Services.Seed.Seed,
+				key:       value,
 			})
 		default:
-			fmt.Fprintln(w, detail.Services.Seed.Seed)
+			fmt.Fprintln(w, value)
 		}
 		return nil
 	}

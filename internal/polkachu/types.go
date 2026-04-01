@@ -12,8 +12,22 @@ type ChainDetail struct {
 
 // PolkachuServices describes the services Polkachu offers for a chain.
 type PolkachuServices struct {
-	Seed      ServiceSeed   `json:"seed"`
-	LivePeers ServiceStatus `json:"live_peers"`
+	Seed      ServiceSeed      `json:"seed"`
+	Addrbook  ServiceDownload  `json:"addrbook"`
+	StateSync ServiceStateSync `json:"state_sync"`
+	LivePeers ServiceStatus    `json:"live_peers"`
+}
+
+// ServiceStateSync holds the state sync node details for a chain.
+type ServiceStateSync struct {
+	Active bool   `json:"active"`
+	Node   string `json:"node"`
+}
+
+// ServiceDownload holds a downloadable resource for a chain.
+type ServiceDownload struct {
+	Active      bool   `json:"active"`
+	DownloadURL string `json:"download_url"`
 }
 
 // ServiceStatus indicates whether a Polkachu service is active.
