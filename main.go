@@ -482,7 +482,10 @@ func completionHandler() complete.Handler {
 	}
 }
 
-func completeNetworks(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+func completeNetworks(cmd *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	if len(args) > 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
 	client := polkachu.NewClient()
 	chains, err := client.ListChains(cmd.Context())
 	if err != nil {
