@@ -46,19 +46,18 @@ peerscout find cosmos            # Fetch 5 peers (default)
 peerscout find cosmos -n 15      # Fetch 15 peers
 peerscout find cosmos -f csv     # Comma-separated for config files
 peerscout find cosmos -f json    # JSON output
+peerscout find cosmos --seed-node    # Polkachu seed node
+peerscout find cosmos --state-sync   # State-sync RPC endpoint
+peerscout find cosmos --addrbook     # Addrbook download URL
 peerscout list                   # Show all supported networks
-peerscout config init            # Interactive first-run setup
 ```
 
 ## Configuration
 
-`peerscout config init` creates
-`~/.config/peerscout/config.toml`.
-
 Settings are loaded in precedence order:
 
 1. Compiled defaults
-2. TOML config file
+2. TOML config file (`~/.config/peerscout/config.toml`)
 3. Environment variables (`PEERSCOUT_*`)
 4. CLI flags
 
@@ -68,6 +67,8 @@ Manage settings directly:
 peerscout config set count 10    # Set default peer count
 peerscout config list            # Show current settings
 peerscout config get count       # Show a single setting
+peerscout config unset count     # Clear a setting
+peerscout config path            # Show config file path
 ```
 
 ## Output Formats
@@ -81,13 +82,22 @@ peerscout config get count       # Show a single setting
 Use `--agent` for AI agent consumption (forces JSON, quiet mode).
 Use `-q`/`--quiet` to suppress all non-data output.
 
+## Shell Completion
+
+```bash
+peerscout --install-completion   # Install for your current shell
+```
+
+Tab-completing `peerscout find <tab>` fetches the network list
+from the API.
+
 ## API Coverage
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /api/v2/chains` | List all supported networks |
 | `GET /api/v2/chains/{network}/live_peers` | Fetch live peers |
-| `GET /api/v2/chains/{network}` | Chain detail (live peers active check) |
+| `GET /api/v2/chains/{network}` | Seed node, state-sync endpoint, addrbook URL |
 
 Data sourced from the [Polkachu API v2](https://polkachu.com).
 
@@ -111,4 +121,3 @@ task test             # Run tests
 task lint             # Run golangci-lint
 task fmt              # Format with gofumpt
 ```
-
