@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
 	"github.com/BurntSushi/toml"
+	"github.com/gechr/clib/terminal"
 	"github.com/gechr/clib/theme"
 	"github.com/gechr/clog"
 	"github.com/matcra587/peerscout/internal/config"
@@ -53,7 +54,10 @@ func configListCmd() *cobra.Command {
 			resolved := configToMap(cfg)
 			fileSources := configSourcesFromFile()
 
-			th := theme.Default()
+			var th *theme.Theme
+			if terminal.Is(os.Stdout) {
+				th = theme.Default()
+			}
 
 			rows := make([][]string, 0, len(configKeys))
 			for _, key := range configKeys {
@@ -69,10 +73,15 @@ func configListCmd() *cobra.Command {
 				rows = append(rows, []string{key, val, source, desc})
 			}
 
-			headerStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1)
-			keyStyle := th.Blue.Padding(0, 1)
-			valueStyle := lipgloss.NewStyle().Padding(0, 1)
-			dimStyle := th.Dim.Padding(0, 1)
+			plainStyle := lipgloss.NewStyle().Padding(0, 1)
+			headerStyle := plainStyle.Bold(true)
+			keyStyle := plainStyle
+			valueStyle := plainStyle
+			dimStyle := plainStyle
+			if th != nil {
+				keyStyle = th.Blue.Padding(0, 1)
+				dimStyle = th.Dim.Padding(0, 1)
+			}
 
 			t := table.New().
 				Border(lipgloss.HiddenBorder()).
@@ -295,6 +304,9 @@ func modifyConfigFile(cfgPath string, modify func(doc map[string]any)) error {
 	var raw map[string]any
 
 	data, err := os.ReadFile(cfgPath) //nolint:gosec // path is from --config flag or XDG default
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("reading config file: %w", err)
+	}
 	if err == nil {
 		if _, err := toml.Decode(string(data), &raw); err != nil {
 			return fmt.Errorf("parsing config file: %w", err)

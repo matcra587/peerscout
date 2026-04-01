@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gechr/clog"
+	"github.com/matcra587/peerscout/internal/version"
 )
 
 const baseURL = "https://polkachu.com/api/v2"
@@ -27,8 +28,13 @@ type Client struct {
 // NewClient creates a Polkachu API client with sensible defaults.
 func NewClient() *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: 15 * time.Second},
-		baseURL:    baseURL,
+		httpClient: &http.Client{
+			Timeout: 15 * time.Second,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse // API should not redirect
+			},
+		},
+		baseURL: baseURL,
 	}
 }
 
@@ -115,6 +121,7 @@ func (c *Client) doGet(ctx context.Context, path string, target any) error {
 		return fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "peerscout/"+version.Version)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

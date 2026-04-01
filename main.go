@@ -256,7 +256,7 @@ func runFind(cmd *cobra.Command, args []string) error {
 	quiet := isQuiet(cmd)
 
 	var chains []string
-	fetchChains := func(_ context.Context) error {
+	fetchChains := func(ctx context.Context) error {
 		var err error
 		chains, err = client.ListChains(ctx)
 		return err
@@ -328,26 +328,34 @@ func runFind(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("count") {
 		count, _ = cmd.Flags().GetInt("count")
 	}
+	if count < 1 {
+		return fmt.Errorf("count must be a positive integer, got %d", count)
+	}
 
 	var result *polkachu.AccumulateResult
+	var duplicates int
 	if quiet {
 		var err error
 		result, err = client.AccumulatePeers(ctx, network, count, nil)
 		if err != nil {
 			return fmt.Errorf("fetching peers: %w", err)
 		}
+		duplicates = result.Duplicates
 	} else {
 		if err := clog.Shimmer("discovering peers").
 			Elapsed("duration").
 			Int("target", count).
-			Progress(ctx, func(_ context.Context, u *clogfx.Update) error {
+			Progress(ctx, func(ctx context.Context, u *clogfx.Update) error {
 				var err error
 				result, err = client.AccumulatePeers(ctx, network, count, func(current int) {
 					u.Int("found", current).Send()
 				})
+				if result != nil {
+					duplicates = result.Duplicates
+				}
 				return err
 			}).
-			Int("duplicates", result.Duplicates).
+			Int("duplicates", duplicates).
 			Send(); err != nil {
 			return fmt.Errorf("fetching peers: %w", err)
 		}
@@ -397,7 +405,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 	client := polkachu.NewClient()
 
 	var chains []string
-	fetchChains := func(_ context.Context) error {
+	fetchChains := func(ctx context.Context) error {
 		var err error
 		chains, err = client.ListChains(ctx)
 		return err
