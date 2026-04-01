@@ -27,6 +27,9 @@ builds:
     goarch:
       - amd64
       - arm64
+    ignore:
+      - goos: darwin
+        goarch: amd64
     ldflags:
       - -s -w
       - -X '{{ .ModulePath }}/internal/version.Version={{ .Version }}'
@@ -45,6 +48,31 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+# ── Signing ──────────────────────────────────────────────
+
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - "sign-blob"
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+
+# ── Distribute ───────────────────────────────────────────
+
+homebrew_casks:
+  - repository:
+      owner: matcra587
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    homepage: https://github.com/matcra587/peerscout
+    description: Fetch live peers for Cosmos SDK chains
+    license: MIT
+    binaries:
+      - peerscout
 
 # ── Changelog ────────────────────────────────────────────
 
