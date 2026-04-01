@@ -63,7 +63,8 @@ func configListCmd() *cobra.Command {
 				if envVal := envSource(key); envVal != "" {
 					source = "PEERSCOUT_" + strings.ToUpper(key)
 				}
-				rows = append(rows, []string{key, val, source})
+				desc := configDescriptions[key]
+				rows = append(rows, []string{key, val, source, desc})
 			}
 
 			headerStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1)
@@ -73,7 +74,7 @@ func configListCmd() *cobra.Command {
 
 			t := table.New().
 				Border(lipgloss.HiddenBorder()).
-				Headers("Key", "Value", "Source").
+				Headers("Key", "Value", "Source", "Description").
 				StyleFunc(func(row, col int) lipgloss.Style {
 					if row == table.HeaderRow {
 						return headerStyle
@@ -81,7 +82,7 @@ func configListCmd() *cobra.Command {
 					switch col {
 					case 0:
 						return keyStyle
-					case 2:
+					case 2, 3:
 						return dimStyle
 					default:
 						return valueStyle
@@ -202,6 +203,10 @@ func configPathCmd() *cobra.Command {
 
 var configKeys = []string{
 	"count",
+}
+
+var configDescriptions = map[string]string{
+	"count": "Number of peers to return",
 }
 
 func completeConfigKeys(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
