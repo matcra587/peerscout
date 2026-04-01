@@ -117,7 +117,7 @@ func configGetCmd() *cobra.Command {
 			m := configToMap(cfg)
 			val, ok := m[args[0]]
 			if !ok {
-				return fmt.Errorf("unknown config key %q - run 'peerscout config list' to see all keys", args[0])
+				return fmt.Errorf("unknown config key %s - run 'peerscout config list' to see all keys", args[0])
 			}
 
 			fmt.Fprintln(cmd.OutOrStdout(), val)
@@ -140,7 +140,7 @@ func configSetCmd() *cobra.Command {
 		RunE: func(_ *cobra.Command, args []string) error {
 			key, val := args[0], args[1]
 			if !slices.Contains(configKeys, key) {
-				return fmt.Errorf("unknown config key %q - valid keys: %s", key, strings.Join(configKeys, ", "))
+				return fmt.Errorf("unknown config key %s - valid keys: %s", key, strings.Join(configKeys, ", "))
 			}
 			typed, err := parseConfigValue(key, val)
 			if err != nil {
@@ -167,7 +167,7 @@ func configUnsetCmd() *cobra.Command {
 		ValidArgsFunction: completeConfigKeys,
 		RunE: func(_ *cobra.Command, args []string) error {
 			if !slices.Contains(configKeys, args[0]) {
-				return fmt.Errorf("unknown config key %q - valid keys: %s", args[0], strings.Join(configKeys, ", "))
+				return fmt.Errorf("unknown config key %s - valid keys: %s", args[0], strings.Join(configKeys, ", "))
 			}
 			cfgPath := resolveConfigPath()
 			var remaining int
@@ -227,7 +227,7 @@ func parseConfigValue(key, val string) (any, error) {
 	case "count":
 		n, err := strconv.Atoi(val)
 		if err != nil || n < 1 {
-			return nil, fmt.Errorf("count must be a positive integer, got %q", val)
+			return nil, fmt.Errorf("count must be a positive integer, got %s", val)
 		}
 		return n, nil
 	default:
