@@ -16,7 +16,7 @@ before:
 
 builds:
   - id: peerscout
-    main: ./cmd/peerscout
+    main: .
     binary: peerscout
     mod_timestamp: "{{ .CommitTimestamp }}"
     env:

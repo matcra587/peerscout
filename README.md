@@ -36,7 +36,7 @@ and place it on your `PATH`.
 Requires Go `1.26+`.
 
 ```bash
-go install github.com/matcra587/peerscout/cmd/peerscout@latest
+go install github.com/matcra587/peerscout@latest
 ```
 
 ## Quick Start

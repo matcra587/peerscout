@@ -40,7 +40,7 @@ tasks:
     aliases: [b]
     cmds:
       - mkdir -p {{.DIST_DIR}}
-      - go build -ldflags '{{.LD_FLAGS}}' -o {{.DIST_DIR}}/{{.BINARY_NAME}}-{{.GOOS}}-{{.GOARCH}} ./cmd/peerscout
+      - go build -ldflags '{{.LD_FLAGS}}' -o {{.DIST_DIR}}/{{.BINARY_NAME}}-{{.GOOS}}-{{.GOARCH}} .
     sources:
       - "**/*.go"
       - go.mod
@@ -50,7 +50,7 @@ tasks:
 
   install:
     desc: Install binary to GOPATH/bin
-    cmd: go install -ldflags '{{.LD_FLAGS}}' ./cmd/peerscout
+    cmd: go install -ldflags '{{.LD_FLAGS}}' .
 
   run:
     desc: Build and run

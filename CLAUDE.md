@@ -48,7 +48,7 @@ Tools split across two managers:
 ## Architecture
 
 ```text
-cmd/peerscout/       Cobra command definitions (find, list, config, version)
+main.go, config.go   Cobra command definitions (find, list, config, version)
 internal/config/     Configuration management (koanf, TOML, env)
 internal/dirs/       XDG config/cache directory resolution
 internal/polkachu/   Polkachu API v2 client
