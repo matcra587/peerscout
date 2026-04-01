@@ -49,8 +49,8 @@ func (c *Client) ListChains(ctx context.Context) ([]string, error) {
 	return chains, nil
 }
 
-// GetChainDetail returns detailed information for a specific chain.
-func (c *Client) GetChainDetail(ctx context.Context, network string) (ChainDetail, error) {
+// ChainDetail returns detailed information for a specific chain.
+func (c *Client) ChainDetail(ctx context.Context, network string) (ChainDetail, error) {
 	var detail ChainDetail
 	if err := c.get(ctx, "/chains/"+url.PathEscape(network), &detail); err != nil {
 		return ChainDetail{}, fmt.Errorf("getting chain detail for %q: %w", network, err)
@@ -69,7 +69,7 @@ func (c *Client) FetchLivePeers(ctx context.Context, network string) (ChainLiveP
 
 // CheckLivePeersActive returns true if the given network has live peers available.
 func (c *Client) CheckLivePeersActive(ctx context.Context, network string) (bool, error) {
-	detail, err := c.GetChainDetail(ctx, network)
+	detail, err := c.ChainDetail(ctx, network)
 	if err != nil {
 		return false, err
 	}
@@ -85,8 +85,8 @@ func (c *Client) get(ctx context.Context, path string, target any) error {
 			return nil
 		}
 
-		var rateLimited *RateLimitError
-		if !errors.As(err, &rateLimited) {
+		rateLimited, ok := errors.AsType[*RateLimitError](err)
+		if !ok {
 			return err
 		}
 
@@ -143,9 +143,9 @@ func (c *Client) doGet(ctx context.Context, path string, target any) error {
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
 		if jsonErr := json.Unmarshal(body, &errResp); jsonErr == nil {
-			return fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, errResp.Message)
+			return fmt.Errorf("api error (HTTP %d): %s", resp.StatusCode, errResp.Message)
 		}
-		return fmt.Errorf("API error (HTTP %d): %s", resp.StatusCode, string(body))
+		return fmt.Errorf("api error (HTTP %d): %s", resp.StatusCode, string(body))
 	}
 
 	if err := json.Unmarshal(body, target); err != nil {

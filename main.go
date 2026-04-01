@@ -261,7 +261,7 @@ func runFind(cmd *cobra.Command, args []string) error {
 	addrbook, _ := cmd.Flags().GetBool("addrbook")
 
 	if seedNode || stateSync || addrbook {
-		detail, err := client.GetChainDetail(ctx, network)
+		detail, err := client.ChainDetail(ctx, network)
 		if err != nil {
 			return fmt.Errorf("fetching chain detail: %w", err)
 		}
@@ -446,8 +446,7 @@ func exitCode(err error) int {
 	if err == nil {
 		return 0
 	}
-	var notFound *polkachu.NotFoundError
-	if errors.As(err, &notFound) {
+	if _, ok := errors.AsType[*polkachu.NotFoundError](err); ok {
 		return 1
 	}
 	return 2

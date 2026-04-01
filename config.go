@@ -291,13 +291,6 @@ func resolveConfigPath() string {
 	return p
 }
 
-func resolveConfigOutputPath(cmd *cobra.Command) (string, error) {
-	if p, _ := cmd.Flags().GetString("output-path"); p != "" {
-		return p, nil
-	}
-	return dirs.DefaultConfigPath()
-}
-
 func modifyConfigFile(cfgPath string, modify func(doc map[string]any)) error {
 	var raw map[string]any
 
@@ -318,13 +311,6 @@ func modifyConfigFile(cfgPath string, modify func(doc map[string]any)) error {
 	}
 
 	return encodeTOMLToFile(cfgPath, raw)
-}
-
-func writeConfigTOML(cfgPath string, doc map[string]any) error {
-	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o700); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-	return encodeTOMLToFile(cfgPath, doc)
 }
 
 func encodeTOMLToFile(path string, doc map[string]any) error {
