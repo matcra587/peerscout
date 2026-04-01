@@ -266,23 +266,28 @@ func runFind(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("fetching chain detail: %w", err)
 		}
 
-		var key, value string
+		var key, value, label string
 		switch {
 		case seedNode:
-			if !detail.Services.Seed.Active {
-				return fmt.Errorf("seed node not available for %q", network)
+			label = "seed node"
+			if detail.Services.Seed.Active {
+				key, value = "seed", detail.Services.Seed.Seed
 			}
-			key, value = "seed", detail.Services.Seed.Seed
 		case stateSync:
-			if !detail.Services.StateSync.Active {
-				return fmt.Errorf("state-sync not available for %q", network)
+			label = "state-sync"
+			if detail.Services.StateSync.Active {
+				key, value = "state_sync", detail.Services.StateSync.Node
 			}
-			key, value = "state_sync", detail.Services.StateSync.Node
 		case addrbook:
-			if !detail.Services.Addrbook.Active {
-				return fmt.Errorf("addrbook not available for %q", network)
+			label = "addrbook"
+			if detail.Services.Addrbook.Active {
+				key, value = "addrbook", detail.Services.Addrbook.DownloadURL
 			}
-			key, value = "addrbook", detail.Services.Addrbook.DownloadURL
+		}
+
+		if value == "" {
+			clog.Warn().Str("network", network).Msgf("%s not available", label)
+			return nil
 		}
 
 		w := cmd.OutOrStdout()
