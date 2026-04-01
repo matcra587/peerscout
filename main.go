@@ -8,8 +8,10 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	cobracli "github.com/gechr/clib/cli/cobra"
+	"github.com/gechr/clib/complete"
 	"github.com/gechr/clib/help"
 	"github.com/gechr/clib/terminal"
 	"github.com/gechr/clib/theme"
@@ -22,7 +24,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var configPath string
+var (
+	configPath string
+	comp       *cobracli.Completion
+)
 
 func main() {
 	root := &cobra.Command{
@@ -37,11 +42,25 @@ func main() {
 
   # List all supported networks
   $ peerscout list`,
-		PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			setupLogging(cmd)
+
+			gen := complete.NewGenerator("peerscout").FromFlags(cobracli.FlagMeta(cmd.Root()))
+			gen.Subs = cobracli.Subcommands(cmd.Root())
+			handled, err := comp.Handle(gen, completionHandler())
+			if err != nil {
+				return err
+			}
+			if handled {
+				os.Exit(0) //nolint:revive // completion handler must exit after handling
+			}
+			return nil
 		},
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
 	}
 
 	// Global flags
@@ -113,7 +132,7 @@ func main() {
 	root.SetHelpFunc(cobracli.HelpFunc(renderer, cobracli.SectionsWithOptions(cobracli.WithSubcommandOptional())))
 
 	// Shell completions.
-	_ = cobracli.NewCompletion(root)
+	comp = cobracli.NewCompletion(root)
 
 	if err := root.Execute(); err != nil {
 		clog.Error().Err(err).Msg("fatal")
@@ -195,8 +214,9 @@ func findCmd() *cobra.Command {
 
   # Output as JSON
   $ peerscout find cosmos -f json`,
-		Args: cobra.ExactArgs(1),
-		RunE: runFind,
+		Args:              cobra.ExactArgs(1),
+		ValidArgsFunction: completeNetworks,
+		RunE:              runFind,
 	}
 
 	cmd.Flags().IntP("count", "n", 5, "Number of peers to return")
@@ -440,6 +460,34 @@ func runVersion(cmd *cobra.Command, _ []string) {
 	fmt.Fprintf(w, "  branch:  %s\n", version.Branch)
 	fmt.Fprintf(w, "  built:   %s\n", version.BuildTime)
 	fmt.Fprintf(w, "  built by: %s\n", version.BuildBy)
+}
+
+func completionHandler() complete.Handler {
+	return func(shell, kind string, _ []string) {
+		client := polkachu.NewClient()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		switch kind {
+		case "network":
+			chains, err := client.ListChains(ctx)
+			if err != nil {
+				return
+			}
+			for _, c := range chains {
+				fmt.Println(c)
+			}
+		}
+	}
+}
+
+func completeNetworks(cmd *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
+	client := polkachu.NewClient()
+	chains, err := client.ListChains(cmd.Context())
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return chains, cobra.ShellCompDirectiveNoFileComp
 }
 
 func exitCode(err error) int {
