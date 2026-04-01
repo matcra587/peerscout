@@ -328,6 +328,9 @@ func runFind(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("count") {
 		count, _ = cmd.Flags().GetInt("count")
 	}
+	if count < 1 {
+		return fmt.Errorf("count must be a positive integer, got %d", count)
+	}
 
 	var result *polkachu.AccumulateResult
 	if quiet {

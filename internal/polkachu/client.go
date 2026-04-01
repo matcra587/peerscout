@@ -27,8 +27,13 @@ type Client struct {
 // NewClient creates a Polkachu API client with sensible defaults.
 func NewClient() *Client {
 	return &Client{
-		httpClient: &http.Client{Timeout: 15 * time.Second},
-		baseURL:    baseURL,
+		httpClient: &http.Client{
+			Timeout: 15 * time.Second,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse // API should not redirect
+			},
+		},
+		baseURL: baseURL,
 	}
 }
 
