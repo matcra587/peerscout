@@ -477,8 +477,7 @@ func completionHandler() complete.Handler {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		switch kind {
-		case "network":
+		if kind == "network" {
 			chains, err := client.ListChains(ctx)
 			if err != nil {
 				return
