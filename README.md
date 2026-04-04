@@ -2,6 +2,8 @@
 
 ![License](https://img.shields.io/github/license/matcra587/peerscout)
 ![Go](https://img.shields.io/github/go-mod/go-version/matcra587/peerscout?logo=go&logoColor=white)
+![Release](https://img.shields.io/github/v/release/matcra587/peerscout)
+![Go Report Card](https://goreportcard.com/badge/github.com/matcra587/peerscout)
 
 Fetch live peers for Cosmos SDK chains from the Polkachu API.
 
@@ -15,25 +17,13 @@ formats and configuration management.
 
 ## Installation
 
-### Homebrew
-
 ```bash
 brew install matcra587/tap/peerscout
 ```
 
-### GitHub Releases
-
-Download a pre-built binary from the
-[releases page](https://github.com/matcra587/peerscout/releases)
-and place it on your `PATH`.
-
-### Go
-
-Requires Go `1.26+`.
-
-```bash
-go install github.com/matcra587/peerscout@latest
-```
+Also available via `go install` and pre-built binaries. All installs
+support `peerscout update` for self-updating.
+See [docs/installation.md](docs/installation.md) for details.
 
 ## Quick Start
 
