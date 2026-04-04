@@ -2,7 +2,7 @@ package agent
 
 // Envelope is the top-level JSON structure returned in agent mode.
 type Envelope struct {
-	Success bool           `json:"success"`
+	OK      bool           `json:"success"`
 	Command string         `json:"command"`
 	Data    any            `json:"data,omitempty"`
 	Hints   []string       `json:"hints,omitempty"`
@@ -19,7 +19,7 @@ type EnvelopeError struct {
 // Success builds an Envelope for a successful operation.
 func Success(command string, data any, hints []string) Envelope {
 	return Envelope{
-		Success: true,
+		OK:      true,
 		Command: command,
 		Data:    data,
 		Hints:   hints,

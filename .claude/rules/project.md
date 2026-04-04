@@ -122,6 +122,59 @@ if err := root.Execute(); err != nil {
 
 ---
 
+## Agent Mode
+
+Every command must produce a JSON envelope when running in agent
+mode. No exceptions.
+
+### Detection and context
+
+Agent mode is detected once in `PersistentPreRunE` and stored in
+the command context. Retrieve it with `AgentFromContext(cmd)`.
+Never re-detect via env vars in individual commands.
+
+### Format selection
+
+Use `output.DetectFormat` to determine the output format. Priority:
+agent mode > explicit `--format` flag > plain.
+
+```go
+det := AgentFromContext(cmd)
+format, _ := cmd.Flags().GetString("format")
+isTTY := terminal.Is(os.Stdout)
+
+switch output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format}) {
+case output.FormatAgentJSON:
+    return output.RenderAgentJSON(w, "command", data, nil)
+case output.FormatJSON:
+    return output.RenderJSON(w, data, isTTY)
+default:
+    // plain/csv output
+}
+```
+
+### Envelope format
+
+```json
+{"success":true,"command":"<name>","data":{...}}
+```
+
+### Adding new commands
+
+1. Get `det := AgentFromContext(cmd)` in the `RunE` function.
+2. Use `output.DetectFormat` to select the output path.
+3. Build a structured `data` value (named struct, map or slice).
+4. Add the command to `TestAgentMode_JSONEnvelope` in
+   `agent_envelope_test.go`.
+
+### Testing
+
+`TestAgentMode_JSONEnvelope` exercises every non-API command with
+`--agent` and verifies the output is a valid JSON envelope. New
+commands must be added to its test table.
+
+---
+
 ## Configuration (internal/config/)
 
 - koanf-based loading from TOML file, env vars and CLI flags

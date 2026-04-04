@@ -3,7 +3,6 @@ package agent
 import (
 	"embed"
 	"fmt"
-	"path/filepath"
 	"strings"
 )
 
@@ -22,7 +21,7 @@ func init() {
 		if e.IsDir() {
 			continue
 		}
-		name := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
+		name, _ := strings.CutSuffix(e.Name(), ".md")
 		GuideNames = append(GuideNames, name)
 	}
 }

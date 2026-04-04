@@ -11,7 +11,7 @@ import (
 func TestSuccess_Structure(t *testing.T) {
 	t.Parallel()
 	env := Success("find", []string{"peer1", "peer2"}, []string{"use -n for more"})
-	assert.True(t, env.Success)
+	assert.True(t, env.OK)
 	assert.Equal(t, "find", env.Command)
 	assert.Equal(t, []string{"peer1", "peer2"}, env.Data)
 	assert.Equal(t, []string{"use -n for more"}, env.Hints)
@@ -36,7 +36,7 @@ func TestSuccess_JSONMarshal(t *testing.T) {
 func TestError_Structure(t *testing.T) {
 	t.Parallel()
 	env := Error("find", 404, "unknown network", "run peerscout list")
-	assert.False(t, env.Success)
+	assert.False(t, env.OK)
 	assert.Equal(t, "find", env.Command)
 	assert.Nil(t, env.Data)
 	require.NotNil(t, env.Err)
