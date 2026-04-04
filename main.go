@@ -24,12 +24,38 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var (
-	configPath string
-	comp       *cobracli.Completion
-)
+var configPath string
 
 func main() {
+	root := newRootCmd()
+
+	// Handle completion flags before cobra parses, so completion
+	// works even when a required subcommand is missing.
+	if flags, positional, ok := cobracli.Preflight(); ok {
+		gen := newCompletionGenerator(root)
+		handled, err := flags.Handle(gen, completionHandler(), complete.WithArgs(positional))
+		if err != nil {
+			clog.Error().Err(err).Msg("completion")
+			os.Exit(2)
+		}
+		if handled {
+			os.Exit(0)
+		}
+	}
+
+	if err := root.Execute(); err != nil {
+		clog.Error().Err(err).Msg("fatal")
+		os.Exit(exitCode(err))
+	}
+}
+
+func newCompletionGenerator(root *cobra.Command) *complete.Generator {
+	gen := complete.NewGenerator("peerscout").FromFlags(cobracli.FlagMeta(root))
+	gen.Subs = cobracli.Subcommands(root)
+	return gen
+}
+
+func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "peerscout",
 		Short: "Discover blockchain peers from the Polkachu API",
@@ -44,16 +70,6 @@ func main() {
   $ peerscout list`,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 			setupLogging(cmd)
-
-			gen := complete.NewGenerator("peerscout").FromFlags(cobracli.FlagMeta(cmd.Root()))
-			gen.Subs = cobracli.Subcommands(cmd.Root())
-			handled, err := comp.Handle(gen, completionHandler())
-			if err != nil {
-				return err
-			}
-			if handled {
-				os.Exit(0) //nolint:revive // completion handler must exit after handling
-			}
 			return nil
 		},
 		SilenceUsage:  true,
@@ -131,13 +147,12 @@ func main() {
 	renderer := help.NewRenderer(th)
 	root.SetHelpFunc(cobracli.HelpFunc(renderer, cobracli.SectionsWithOptions(cobracli.WithSubcommandOptional())))
 
-	// Shell completions.
-	comp = cobracli.NewCompletion(root)
+	// Shell completion subcommand (for Homebrew: peerscout completion <shell>).
+	root.AddCommand(cobracli.CompletionCommand(root, func() *complete.Generator {
+		return newCompletionGenerator(root)
+	}))
 
-	if err := root.Execute(); err != nil {
-		clog.Error().Err(err).Msg("fatal")
-		os.Exit(exitCode(err))
-	}
+	return root
 }
 
 func setupLogging(cmd *cobra.Command) {

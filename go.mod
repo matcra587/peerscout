@@ -6,7 +6,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.2
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/x/ansi v0.11.6
-	github.com/gechr/clib v0.2.9
+	github.com/gechr/clib v0.2.11
 	github.com/gechr/clog v0.7.28
 	github.com/knadh/koanf/parsers/toml v0.1.0
 	github.com/knadh/koanf/providers/env v1.1.0

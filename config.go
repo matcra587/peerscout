@@ -250,7 +250,7 @@ func completeConfigKeys(_ *cobra.Command, _ []string, _ string) ([]string, cobra
 
 func configToMap(cfg config.Config) map[string]string {
 	return map[string]string{
-		"count": fmt.Sprintf("%d", cfg.Count),
+		"count": strconv.Itoa(cfg.Count),
 	}
 }
 
