@@ -82,8 +82,14 @@ func configListCmd() *cobra.Command {
 
 			det := AgentFromContext(cmd)
 			w := cmd.OutOrStdout()
-			if det.Active {
+			format, _ := cmd.Flags().GetString("format")
+
+			switch output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format}) {
+			case output.FormatAgentJSON:
 				return output.RenderAgentJSON(w, "config list", entries, nil)
+			case output.FormatJSON:
+				clog.Print().JSON(entries)
+				return nil
 			}
 
 			rows := make([][]string, 0, len(entries))
