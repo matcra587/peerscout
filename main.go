@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
@@ -17,11 +18,13 @@ import (
 	"github.com/gechr/clib/theme"
 	"github.com/gechr/clog"
 	clogfx "github.com/gechr/clog/fx"
+	"github.com/matcra587/peerscout/internal/agent"
 	"github.com/matcra587/peerscout/internal/config"
 	"github.com/matcra587/peerscout/internal/output"
 	"github.com/matcra587/peerscout/internal/polkachu"
 	"github.com/matcra587/peerscout/internal/version"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 var configPath string
@@ -132,12 +135,14 @@ func newRootCmd() *cobra.Command {
 	root.AddGroup(
 		&cobra.Group{ID: "peers", Title: "Peer Discovery"},
 		&cobra.Group{ID: "config", Title: "Configuration"},
+		&cobra.Group{ID: "agent", Title: "Agent"},
 	)
 
 	root.AddCommand(findCmd())
 	root.AddCommand(listCmd())
 	root.AddCommand(configCmd())
 	root.AddCommand(versionCmd())
+	root.AddCommand(agentCmd())
 
 	// Themed help rendering.
 	th := theme.New(
@@ -158,13 +163,12 @@ func newRootCmd() *cobra.Command {
 func setupLogging(cmd *cobra.Command) {
 	clog.SetEnvPrefix("PEERSCOUT")
 
-	agent, _ := cmd.Flags().GetBool("agent")
 	quiet, _ := cmd.Flags().GetBool("quiet")
 	noColor, _ := cmd.Flags().GetBool("no-color")
 	tty := terminal.Is(os.Stdout)
 
-	// --agent, --quiet, or non-TTY suppress all non-data output.
-	if agent || quiet || !tty {
+	// Agent mode, --quiet, or non-TTY suppress all non-data output.
+	if isAgentMode(cmd) || quiet || !tty {
 		clog.SetLevel(clog.LevelFatal)
 	} else {
 		debug, _ := cmd.Flags().GetBool("debug")
@@ -189,27 +193,39 @@ func setupLogging(cmd *cobra.Command) {
 		}
 	}
 
-	// Disable colour for --agent, --no-color, or non-TTY.
-	if agent || noColor || !tty {
+	// Disable colour for agent mode, --no-color, or non-TTY.
+	if isAgentMode(cmd) || noColor || !tty {
 		clog.SetColorMode(clog.ColorNever)
 	}
 }
 
-// isQuiet returns true if spinners and logs should be suppressed.
-func isQuiet(cmd *cobra.Command) bool {
-	agent, _ := cmd.Flags().GetBool("agent")
-	quiet, _ := cmd.Flags().GetBool("quiet")
-	return agent || quiet || !terminal.Is(os.Stdout)
+// isAgentMode returns true when running under an AI agent: --agent flag
+// or known agent env var. Non-TTY alone does NOT activate agent mode -
+// piped output should retain the user's chosen format.
+func isAgentMode(cmd *cobra.Command) bool {
+	flag, _ := cmd.Flags().GetBool("agent")
+	return agent.DetectWithFlag(flag).Active
 }
 
-// outputFormat returns the resolved format. --agent forces json.
+// isQuiet returns true if spinners and logs should be suppressed.
+func isQuiet(cmd *cobra.Command) bool {
+	quiet, _ := cmd.Flags().GetBool("quiet")
+	return isAgentMode(cmd) || quiet || !terminal.Is(os.Stdout)
+}
+
+// outputFormat returns the resolved format. Agent mode forces json.
 func outputFormat(cmd *cobra.Command) string {
-	agent, _ := cmd.Flags().GetBool("agent")
-	if agent {
+	if isAgentMode(cmd) {
 		return "json"
 	}
 	format, _ := cmd.Flags().GetString("format")
 	return format
+}
+
+// useColor returns true when colourised output is appropriate.
+func useColor(cmd *cobra.Command) bool {
+	noColor, _ := cmd.Flags().GetBool("no-color")
+	return !isAgentMode(cmd) && !noColor && terminal.Is(os.Stdout)
 }
 
 func findCmd() *cobra.Command {
@@ -278,8 +294,14 @@ func runFind(cmd *cobra.Command, args []string) error {
 		chains, err = client.ListChains(ctx)
 		return err
 	}
+	agentMode := isAgentMode(cmd)
+	w := cmd.OutOrStdout()
+
 	if quiet {
 		if err := fetchChains(ctx); err != nil {
+			if agentMode {
+				return agentError(w, "find", err)
+			}
 			return fmt.Errorf("unable to reach Polkachu API: %w", err)
 		}
 	} else {
@@ -291,7 +313,11 @@ func runFind(cmd *cobra.Command, args []string) error {
 	}
 
 	if !slices.Contains(chains, network) {
-		return fmt.Errorf("unknown network %q - run 'peerscout list' to see all supported networks", network)
+		err := fmt.Errorf("unknown network %q - run 'peerscout list' to see all supported networks", network)
+		if agentMode {
+			return agentError(w, "find", err)
+		}
+		return err
 	}
 
 	seedNode, _ := cmd.Flags().GetBool("seed-node")
@@ -328,13 +354,13 @@ func runFind(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 
-		w := cmd.OutOrStdout()
+		data := map[string]any{"network": network, key: value}
 		switch outputFormat(cmd) {
 		case "json":
-			return output.RenderJSON(w, map[string]any{
-				"network": network,
-				key:       value,
-			}, terminal.Is(os.Stdout))
+			if agentMode {
+				return output.RenderAgentJSON(w, "find", data, nil)
+			}
+			return output.RenderJSON(w, data, useColor(cmd))
 		default:
 			fmt.Fprintln(w, value)
 		}
@@ -383,15 +409,17 @@ func runFind(cmd *cobra.Command, args []string) error {
 		allPeers = allPeers[:count]
 	}
 
-	w := cmd.OutOrStdout()
-
 	switch outputFormat(cmd) {
 	case "json":
-		return output.RenderJSON(w, map[string]any{
+		data := map[string]any{
 			"network": network,
 			"peers":   allPeers,
 			"count":   len(allPeers),
-		}, terminal.Is(os.Stdout))
+		}
+		if agentMode {
+			return output.RenderAgentJSON(w, "find", data, nil)
+		}
+		return output.RenderJSON(w, data, useColor(cmd))
 	case "csv":
 		fmt.Fprintln(w, strings.Join(allPeers, ","))
 	default:
@@ -420,6 +448,8 @@ func listCmd() *cobra.Command {
 func runList(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	client := polkachu.NewClient()
+	agentMode := isAgentMode(cmd)
+	w := cmd.OutOrStdout()
 
 	var chains []string
 	fetchChains := func(ctx context.Context) error {
@@ -429,6 +459,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 	if isQuiet(cmd) {
 		if err := fetchChains(ctx); err != nil {
+			if agentMode {
+				return agentError(w, "list", err)
+			}
 			return fmt.Errorf("unable to reach Polkachu API: %w", err)
 		}
 	} else {
@@ -439,17 +472,17 @@ func runList(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	w := cmd.OutOrStdout()
-
 	switch outputFormat(cmd) {
 	case "json":
-		return output.RenderJSON(w, chains, terminal.Is(os.Stdout))
+		if agentMode {
+			return output.RenderAgentJSON(w, "list", chains, nil)
+		}
+		return output.RenderJSON(w, chains, useColor(cmd))
 	case "csv":
 		fmt.Fprintln(w, strings.Join(chains, ","))
 	default:
-		isTTY := terminal.Is(os.Stdout)
 		var th *theme.Theme
-		if isTTY {
+		if useColor(cmd) {
 			th = theme.Default()
 		}
 		return output.RenderColumns(w, chains, terminal.Width(os.Stdout), th)
@@ -482,7 +515,7 @@ func runVersion(cmd *cobra.Command, _ []string) {
 	}
 
 	var th *theme.Theme
-	if terminal.Is(os.Stdout) {
+	if useColor(cmd) {
 		th = theme.Default()
 	}
 
@@ -539,4 +572,121 @@ func exitCode(err error) int {
 		return 1
 	}
 	return 2
+}
+
+// --- Agent subcommand ---
+
+func agentCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "agent",
+		Short:   "Agent discovery subcommands",
+		GroupID: "agent",
+	}
+	cmd.AddCommand(agentSchemaCmd())
+	cmd.AddCommand(agentGuideCmd())
+	return cmd
+}
+
+type commandSchema struct {
+	Use      string          `json:"use"`
+	Short    string          `json:"short"`
+	Long     string          `json:"long,omitempty"`
+	Flags    []flagSchema    `json:"flags,omitempty"`
+	Commands []commandSchema `json:"commands,omitempty"`
+}
+
+type flagSchema struct {
+	Name      string `json:"name"`
+	Shorthand string `json:"shorthand,omitempty"`
+	Type      string `json:"type"`
+	Default   string `json:"default,omitempty"`
+	Usage     string `json:"usage,omitempty"`
+}
+
+func agentSchemaCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "schema",
+		Short: "Print command schema as JSON",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			compact, _ := cmd.Flags().GetBool("compact")
+			schema := buildSchema(cmd.Root(), compact)
+			w := cmd.OutOrStdout()
+			if isAgentMode(cmd) {
+				return output.RenderAgentJSON(w, "agent schema", schema, nil)
+			}
+			return output.RenderJSON(w, schema, useColor(cmd))
+		},
+	}
+	cmd.Flags().Bool("compact", false, "Strip descriptions for smaller output")
+	cobracli.Extend(cmd.Flags().Lookup("compact"), cobracli.FlagExtra{
+		Terse: "strip descriptions",
+	})
+	return cmd
+}
+
+func buildSchema(cmd *cobra.Command, compact bool) commandSchema {
+	s := commandSchema{Use: cmd.Use}
+	if !compact {
+		s.Short = cmd.Short
+		s.Long = cmd.Long
+	}
+
+	cmd.LocalNonPersistentFlags().VisitAll(func(f *pflag.Flag) {
+		if f.Hidden {
+			return
+		}
+		fs := flagSchema{
+			Name: f.Name,
+			Type: f.Value.Type(),
+		}
+		if f.Shorthand != "" {
+			fs.Shorthand = f.Shorthand
+		}
+		if f.DefValue != "" && f.DefValue != "false" {
+			fs.Default = f.DefValue
+		}
+		if !compact {
+			fs.Usage = f.Usage
+		}
+		s.Flags = append(s.Flags, fs)
+	})
+
+	for _, child := range cmd.Commands() {
+		if !child.IsAvailableCommand() || child.Name() == "help" {
+			continue
+		}
+		s.Commands = append(s.Commands, buildSchema(child, compact))
+	}
+	return s
+}
+
+func agentGuideCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "guide <name>",
+		Short: "Print an agent guide (" + strings.Join(agent.GuideNames, ", ") + ")",
+		Args:  cobra.ExactArgs(1),
+		ValidArgs: agent.GuideNames,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			content, err := agent.Guide(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(cmd.OutOrStdout(), content)
+			return nil
+		},
+	}
+}
+
+// agentError writes a structured error envelope to w and returns the
+// original error so the process exits with a non-zero code.
+func agentError(w io.Writer, command string, err error) error {
+	code := 1
+	if _, ok := errors.AsType[*polkachu.NotFoundError](err); ok {
+		code = 404
+	}
+	env := agent.Error(command, code, err.Error(), "")
+	data, _ := json.Marshal(env)
+	_, _ = w.Write(append(data, '\n'))
+	return err
 }
