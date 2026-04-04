@@ -22,6 +22,7 @@ import (
 	"github.com/matcra587/peerscout/internal/config"
 	"github.com/matcra587/peerscout/internal/output"
 	"github.com/matcra587/peerscout/internal/polkachu"
+	"github.com/matcra587/peerscout/internal/update"
 	"github.com/matcra587/peerscout/internal/version"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -32,7 +33,10 @@ var configPath string
 // contextKey is a package-local type for context value keys to avoid collisions.
 type contextKey string
 
-const agentKey contextKey = "agent"
+const (
+	agentKey       contextKey = "agent"
+	updateCheckKey contextKey = "update_check"
+)
 
 // AgentFromContext retrieves the agent DetectionResult from the command context.
 func AgentFromContext(cmd *cobra.Command) agent.DetectionResult {
@@ -58,8 +62,13 @@ func main() {
 	}
 
 	if err := root.Execute(); err != nil {
-		clog.Error().Err(err).Msg("fatal")
+		clog.Error().Err(err).Send()
 		os.Exit(exitCode(err))
+	}
+
+	// Show update notification after command output.
+	if v, ok := root.Context().Value(updateCheckKey).(update.CheckResult); ok {
+		update.NotifyCLI(v)
 	}
 }
 
@@ -89,6 +98,15 @@ func newRootCmd() *cobra.Command {
 			cmd.SetContext(ctx)
 
 			setupLogging(cmd, det)
+
+			// Background update check (non-blocking, skipped in agent mode).
+			isTTY := terminal.Is(os.Stdout)
+			if update.ShouldCheck(det.Active, isTTY) {
+				result := update.CheckForUpdate(ctx)
+				ctx = context.WithValue(ctx, updateCheckKey, result)
+				cmd.SetContext(ctx)
+			}
+
 			return nil
 		},
 		SilenceUsage:  true,
@@ -159,6 +177,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(configCmd())
 	root.AddCommand(versionCmd())
 	root.AddCommand(agentCmd())
+	root.AddCommand(updateCmd())
 
 	// Themed help rendering.
 	th := theme.New(
@@ -712,4 +731,21 @@ func agentError(w io.Writer, command string, err error) error {
 	data, _ := json.Marshal(env)
 	_, _ = w.Write(append(data, '\n'))
 	return err
+}
+
+// --- Update subcommand ---
+
+func updateCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "update",
+		Aliases: []string{"up"},
+		Short:   "Update peerscout to the latest version",
+		Long:    "Detect the install method and update peerscout to the latest tagged release.",
+		Example: `  # Update peerscout to the latest version
+  $ peerscout update`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return update.Run(cmd.Context())
+		},
+	}
 }
