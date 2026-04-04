@@ -2,16 +2,21 @@ package output
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
+
+	"github.com/alecthomas/chroma/v2/quick"
 )
 
-// RenderJSON writes v as indented JSON to w.
-func RenderJSON(w io.Writer, v any) error {
+// RenderJSON writes v as indented JSON to w. When isTTY is true,
+// JSON output is syntax-highlighted for terminal display.
+func RenderJSON(w io.Writer, v any, isTTY bool) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		return fmt.Errorf("encoding JSON: %w", err)
+		return err
 	}
-	_, err = fmt.Fprintln(w, string(data))
+	if isTTY {
+		return quick.Highlight(w, string(data)+"\n", "json", "terminal256", "monokai")
+	}
+	_, err = w.Write(append(data, '\n'))
 	return err
 }

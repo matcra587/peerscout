@@ -158,37 +158,39 @@ func newRootCmd() *cobra.Command {
 func setupLogging(cmd *cobra.Command) {
 	clog.SetEnvPrefix("PEERSCOUT")
 
-	// --agent and --quiet suppress all non-data output.
 	agent, _ := cmd.Flags().GetBool("agent")
 	quiet, _ := cmd.Flags().GetBool("quiet")
-	if agent || quiet {
+	noColor, _ := cmd.Flags().GetBool("no-color")
+	tty := terminal.Is(os.Stdout)
+
+	// --agent, --quiet, or non-TTY suppress all non-data output.
+	if agent || quiet || !tty {
 		clog.SetLevel(clog.LevelFatal)
-		return
-	}
+	} else {
+		debug, _ := cmd.Flags().GetBool("debug")
+		if debug {
+			clog.SetVerbose(true)
+		}
 
-	debug, _ := cmd.Flags().GetBool("debug")
-	if debug {
-		clog.SetVerbose(true)
-	}
-
-	logFormat, _ := cmd.Flags().GetString("log-format")
-	switch logFormat {
-	case "json":
-		clog.SetHandler(clog.HandlerFunc(func(e clog.Entry) {
-			data, _ := json.Marshal(e)
-			fmt.Fprintln(os.Stderr, string(data))
-		}))
-	case "auto":
-		if !clog.Default.Output().IsTTY() {
+		logFormat, _ := cmd.Flags().GetString("log-format")
+		switch logFormat {
+		case "json":
 			clog.SetHandler(clog.HandlerFunc(func(e clog.Entry) {
 				data, _ := json.Marshal(e)
 				fmt.Fprintln(os.Stderr, string(data))
 			}))
+		case "auto":
+			if !clog.Default.Output().IsTTY() {
+				clog.SetHandler(clog.HandlerFunc(func(e clog.Entry) {
+					data, _ := json.Marshal(e)
+					fmt.Fprintln(os.Stderr, string(data))
+				}))
+			}
 		}
 	}
 
-	noColor, _ := cmd.Flags().GetBool("no-color")
-	if noColor {
+	// Disable colour for --agent, --no-color, or non-TTY.
+	if agent || noColor || !tty {
 		clog.SetColorMode(clog.ColorNever)
 	}
 }
@@ -197,7 +199,7 @@ func setupLogging(cmd *cobra.Command) {
 func isQuiet(cmd *cobra.Command) bool {
 	agent, _ := cmd.Flags().GetBool("agent")
 	quiet, _ := cmd.Flags().GetBool("quiet")
-	return agent || quiet
+	return agent || quiet || !terminal.Is(os.Stdout)
 }
 
 // outputFormat returns the resolved format. --agent forces json.
@@ -332,7 +334,7 @@ func runFind(cmd *cobra.Command, args []string) error {
 			return output.RenderJSON(w, map[string]any{
 				"network": network,
 				key:       value,
-			})
+			}, terminal.Is(os.Stdout))
 		default:
 			fmt.Fprintln(w, value)
 		}
@@ -389,7 +391,7 @@ func runFind(cmd *cobra.Command, args []string) error {
 			"network": network,
 			"peers":   allPeers,
 			"count":   len(allPeers),
-		})
+		}, terminal.Is(os.Stdout))
 	case "csv":
 		fmt.Fprintln(w, strings.Join(allPeers, ","))
 	default:
@@ -441,7 +443,7 @@ func runList(cmd *cobra.Command, _ []string) error {
 
 	switch outputFormat(cmd) {
 	case "json":
-		return output.RenderJSON(w, chains)
+		return output.RenderJSON(w, chains, terminal.Is(os.Stdout))
 	case "csv":
 		fmt.Fprintln(w, strings.Join(chains, ","))
 	default:
@@ -479,11 +481,24 @@ func runVersion(cmd *cobra.Command, _ []string) {
 		return
 	}
 
-	fmt.Fprintf(w, "peerscout %s\n", version.Version)
-	fmt.Fprintf(w, "  commit:  %s\n", version.Commit)
-	fmt.Fprintf(w, "  branch:  %s\n", version.Branch)
-	fmt.Fprintf(w, "  built:   %s\n", version.BuildTime)
-	fmt.Fprintf(w, "  built by: %s\n", version.BuildBy)
+	var th *theme.Theme
+	if terminal.Is(os.Stdout) {
+		th = theme.Default()
+	}
+
+	if th != nil {
+		fmt.Fprintf(w, "%s %s\n", th.Bold.Render("peerscout"), th.Green.Render(version.Version))
+		fmt.Fprintf(w, "  %s  %s\n", th.Dim.Render("commit:"), version.Commit)
+		fmt.Fprintf(w, "  %s  %s\n", th.Dim.Render("branch:"), version.Branch)
+		fmt.Fprintf(w, "  %s   %s\n", th.Dim.Render("built:"), version.BuildTime)
+		fmt.Fprintf(w, "  %s %s\n", th.Dim.Render("built by:"), version.BuildBy)
+	} else {
+		fmt.Fprintf(w, "peerscout %s\n", version.Version)
+		fmt.Fprintf(w, "  commit:  %s\n", version.Commit)
+		fmt.Fprintf(w, "  branch:  %s\n", version.Branch)
+		fmt.Fprintf(w, "  built:   %s\n", version.BuildTime)
+		fmt.Fprintf(w, "  built by: %s\n", version.BuildBy)
+	}
 }
 
 func completionHandler() complete.Handler {
