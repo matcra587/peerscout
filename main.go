@@ -337,7 +337,6 @@ func runFind(cmd *cobra.Command, args []string) error {
 	addrbook, _ := cmd.Flags().GetBool("addrbook")
 
 	format, _ := cmd.Flags().GetString("format")
-	isTTY := terminal.Is(os.Stdout)
 
 	if seedNode || stateSync || addrbook {
 		detail, err := client.ChainDetail(ctx, network)
@@ -377,7 +376,8 @@ func runFind(cmd *cobra.Command, args []string) error {
 		case output.FormatAgentJSON:
 			return output.RenderAgentJSON(w, "find", data, nil)
 		case output.FormatJSON:
-			return output.RenderJSON(w, data, isTTY)
+			clog.Print().JSON(data)
+			return nil
 		default:
 			fmt.Fprintln(w, value)
 		}
@@ -442,7 +442,8 @@ func runFind(cmd *cobra.Command, args []string) error {
 	case output.FormatAgentJSON:
 		return output.RenderAgentJSON(w, "find", data, nil)
 	case output.FormatJSON:
-		return output.RenderJSON(w, data, isTTY)
+		clog.Print().JSON(data)
+		return nil
 	case output.FormatCSV:
 		fmt.Fprintln(w, strings.Join(allPeers, ","))
 	default:
@@ -502,7 +503,8 @@ func runList(cmd *cobra.Command, _ []string) error {
 	case output.FormatAgentJSON:
 		return output.RenderAgentJSON(w, "list", chains, nil)
 	case output.FormatJSON:
-		return output.RenderJSON(w, chains, isTTY)
+		clog.Print().JSON(chains)
+		return nil
 	case output.FormatCSV:
 		fmt.Fprintln(w, strings.Join(chains, ","))
 	default:
@@ -657,7 +659,8 @@ func agentSchemaCmd() *cobra.Command {
 			if det.Active {
 				return output.RenderAgentJSON(w, "agent schema", schema, nil)
 			}
-			return output.RenderJSON(w, schema, terminal.Is(os.Stdout))
+			clog.Print().JSON(schema)
+			return nil
 		},
 	}
 	cmd.Flags().Bool("compact", false, "Strip descriptions for smaller output")

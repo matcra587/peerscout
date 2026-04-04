@@ -9,15 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRenderJSON_Plain(t *testing.T) {
-	t.Parallel()
-	var buf bytes.Buffer
-	err := RenderJSON(&buf, map[string]string{"key": "value"}, false)
-	require.NoError(t, err)
-	assert.Contains(t, buf.String(), "\"key\": \"value\"")
-	assert.Contains(t, buf.String(), "\n")
-}
-
 func TestRenderAgentJSON_Envelope(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer

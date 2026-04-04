@@ -141,13 +141,13 @@ agent mode > explicit `--format` flag > plain.
 ```go
 det := AgentFromContext(cmd)
 format, _ := cmd.Flags().GetString("format")
-isTTY := terminal.Is(os.Stdout)
 
 switch output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format}) {
 case output.FormatAgentJSON:
     return output.RenderAgentJSON(w, "command", data, nil)
 case output.FormatJSON:
-    return output.RenderJSON(w, data, isTTY)
+    clog.Print().JSON(data)
+    return nil
 default:
     // plain/csv output
 }
