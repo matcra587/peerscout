@@ -28,10 +28,10 @@ See [docs/installation.md](docs/installation.md) for details.
 ## Quick Start
 
 ```bash
-peerscout find cosmos            # Fetch 5 peers (default)
+peerscout find cosmos            # Fetch 5 peers with geolocation
 peerscout find cosmos -n 15      # Fetch 15 peers
 peerscout find cosmos -f csv     # Comma-separated for config files
-peerscout find cosmos -f json    # JSON output
+peerscout find cosmos -f json    # JSON with country codes
 peerscout find cosmos --seed-node    # Polkachu seed node
 peerscout find cosmos --state-sync   # State-sync RPC endpoint
 peerscout find cosmos --addrbook     # Addrbook download URL
@@ -55,6 +55,19 @@ peerscout config list            # Show current settings
 peerscout config get count       # Show a single setting
 peerscout config unset count     # Clear a setting
 peerscout config path            # Show config file path
+```
+
+## Geolocation
+
+Peer IPs are enriched with country data via
+[country.is](https://country.is) (default) or
+[ipinfo.io](https://ipinfo.io). Country codes appear in plain output
+and full country names in JSON.
+
+```bash
+peerscout config set geo_provider ipinfo    # Switch provider
+peerscout config set geo_token <token>      # Set ipinfo token
+peerscout config set geo_provider none      # Disable enrichment
 ```
 
 ## Output Formats
@@ -92,6 +105,7 @@ Data sourced from the [Polkachu API v2](https://polkachu.com).
 Feature parity with [py_peerscout](https://github.com/matcra587/py_peerscout),
 rebuilt incrementally:
 
+*   [x] Geolocation enrichment - country codes via country.is/ipinfo
 *   [ ] Geolocation filtering - filter peers by country/region
 *   [ ] Latency probing - ICMP with TCP fallback
 *   [ ] Peer validation - verify peers are reachable

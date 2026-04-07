@@ -23,13 +23,18 @@ type Config struct {
 	Debug     bool   `koanf:"debug"`
 	NoColor   bool   `koanf:"no_color"`
 	LogFormat string `koanf:"log_format"`
+
+	// Geolocation
+	GeoProvider string `koanf:"geo_provider"`
+	GeoToken    string `koanf:"geo_token"`
 }
 
 // Defaults returns a Config with compiled defaults.
 func Defaults() Config {
 	return Config{
-		Count:     5,
-		LogFormat: "auto",
+		Count:       5,
+		LogFormat:   "auto",
+		GeoProvider: "countryis",
 	}
 }
 

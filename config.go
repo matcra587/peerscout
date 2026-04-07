@@ -66,6 +66,9 @@ func configListCmd() *cobra.Command {
 			entries := make([]configEntry, 0, len(configKeys))
 			for _, key := range configKeys {
 				val := resolved[key]
+				if key == "geo_token" && val != "" {
+					val = "***"
+				}
 				source := "default"
 				if _, ok := fileSources[key]; ok {
 					source = configFilePath()
@@ -283,10 +286,14 @@ func configPathCmd() *cobra.Command {
 
 var configKeys = []string{
 	"count",
+	"geo_provider",
+	"geo_token",
 }
 
-var configDescriptions = map[string]string{
-	"count": "Number of peers to return",
+var configDescriptions = map[string]string{ //nolint:gosec // key names, not credentials
+	"count":        "Number of peers to return",
+	"geo_provider": "Geolocation provider (countryis, ipinfo, none)",
+	"geo_token":    "API token for geolocation provider",
 }
 
 func parseConfigValue(key, val string) (any, error) {
@@ -297,6 +304,12 @@ func parseConfigValue(key, val string) (any, error) {
 			return nil, fmt.Errorf("count must be a positive integer, got %s", val)
 		}
 		return n, nil
+	case "geo_provider":
+		valid := []string{"countryis", "ipinfo", "none"}
+		if !slices.Contains(valid, val) {
+			return nil, fmt.Errorf("unknown geo provider %q — valid: %s", val, strings.Join(valid, ", "))
+		}
+		return val, nil
 	default:
 		return val, nil
 	}
@@ -308,7 +321,9 @@ func completeConfigKeys(_ *cobra.Command, _ []string, _ string) ([]string, cobra
 
 func configToMap(cfg config.Config) map[string]string {
 	return map[string]string{
-		"count": strconv.Itoa(cfg.Count),
+		"count":        strconv.Itoa(cfg.Count),
+		"geo_provider": cfg.GeoProvider,
+		"geo_token":    cfg.GeoToken,
 	}
 }
 

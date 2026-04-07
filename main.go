@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"slices"
 	"strings"
@@ -20,6 +21,9 @@ import (
 	clogfx "github.com/gechr/clog/fx"
 	"github.com/matcra587/peerscout/internal/agent"
 	"github.com/matcra587/peerscout/internal/config"
+	"github.com/matcra587/peerscout/internal/geo"
+	"github.com/matcra587/peerscout/internal/geo/countryis"
+	geoipinfo "github.com/matcra587/peerscout/internal/geo/ipinfo"
 	"github.com/matcra587/peerscout/internal/output"
 	"github.com/matcra587/peerscout/internal/polkachu"
 	"github.com/matcra587/peerscout/internal/update"
@@ -38,6 +42,23 @@ const (
 	updateCheckKey contextKey = "update_check"
 )
 
+// locator looks up geographic locations for IP addresses.
+type locator interface {
+	Locate(ctx context.Context, ips []string) map[string]geo.Location
+}
+
+type enrichedPeer struct {
+	Address     string `json:"address"`
+	CountryCode string `json:"country_code,omitempty"`
+	Country     string `json:"country,omitempty"`
+}
+
+type peerResult struct {
+	Network string         `json:"network"`
+	Peers   []enrichedPeer `json:"peers"`
+	Count   int            `json:"count"`
+}
+
 // AgentFromContext retrieves the agent DetectionResult from the command context.
 func AgentFromContext(cmd *cobra.Command) agent.DetectionResult {
 	v, _ := cmd.Context().Value(agentKey).(agent.DetectionResult)
@@ -46,6 +67,11 @@ func AgentFromContext(cmd *cobra.Command) agent.DetectionResult {
 
 func main() {
 	root := newRootCmd()
+
+	// Detect agent mode early (env vars only) so the error path
+	// can produce JSON envelopes. PersistentPreRunE refines this
+	// with the --agent flag and stores it in context.
+	agentMode := agent.Detect().Active
 
 	// Handle completion flags before cobra parses, so completion
 	// works even when a required subcommand is missing.
@@ -62,7 +88,11 @@ func main() {
 	}
 
 	if err := root.Execute(); err != nil {
-		clog.Error().Err(err).Send()
+		if agentMode {
+			agentError(os.Stdout, err)
+		} else {
+			clog.Error().Err(err).Send()
+		}
 		os.Exit(exitCode(err))
 	}
 
@@ -311,25 +341,19 @@ func runFind(cmd *cobra.Command, args []string) error {
 
 	if quiet {
 		if err := fetchChains(ctx); err != nil {
-			if det.Active {
-				return agentError(w, "find", err)
-			}
 			return fmt.Errorf("unable to reach Polkachu API: %w", err)
 		}
 	} else {
 		if err := clog.Shimmer("fetching networks").
+			Str("network", network).
 			Elapsed("duration").
-			Wait(ctx, fetchChains).Send(); err != nil {
+			Wait(ctx, fetchChains).Msg("fetched networks"); err != nil {
 			return fmt.Errorf("unable to reach Polkachu API: %w", err)
 		}
 	}
 
 	if !slices.Contains(chains, network) {
-		err := fmt.Errorf("unknown network %q - run 'peerscout list' to see all supported networks", network)
-		if det.Active {
-			return agentError(w, "find", err)
-		}
-		return err
+		return fmt.Errorf("unknown network %q - run 'peerscout list' to see all supported networks", network)
 	}
 
 	seedNode, _ := cmd.Flags().GetBool("seed-node")
@@ -341,9 +365,6 @@ func runFind(cmd *cobra.Command, args []string) error {
 	if seedNode || stateSync || addrbook {
 		detail, err := client.ChainDetail(ctx, network)
 		if err != nil {
-			if det.Active {
-				return agentError(w, "find", err)
-			}
 			return fmt.Errorf("fetching chain detail: %w", err)
 		}
 
@@ -403,6 +424,7 @@ func runFind(cmd *cobra.Command, args []string) error {
 		duplicates = result.Duplicates
 	} else {
 		if err := clog.Shimmer("discovering peers").
+			Str("network", network).
 			Elapsed("duration").
 			Int("target", count).
 			Progress(ctx, func(ctx context.Context, u *clogfx.Update) error {
@@ -416,7 +438,7 @@ func runFind(cmd *cobra.Command, args []string) error {
 				return err
 			}).
 			Int("duplicates", duplicates).
-			Send(); err != nil {
+			Msg("discovered peers"); err != nil {
 			return fmt.Errorf("fetching peers: %w", err)
 		}
 	}
@@ -426,16 +448,64 @@ func runFind(cmd *cobra.Command, args []string) error {
 		allPeers = allPeers[:count]
 	}
 
-	type peerResult struct {
-		Network string   `json:"network"`
-		Peers   []string `json:"peers"`
-		Count   int      `json:"count"`
+	// Geo enrichment.
+	var loc locator
+	switch cfg.GeoProvider {
+	case "ipinfo":
+		if cfg.GeoToken == "" {
+			clog.Warn().Msg("ipinfo requires a token — set PEERSCOUT_GEO_TOKEN; skipping geo enrichment")
+		} else {
+			loc = geoipinfo.New(cfg.GeoToken)
+		}
+	case "none":
+		// Enrichment disabled.
+	default:
+		loc = countryis.New()
+	}
+
+	var locations map[string]geo.Location
+	if loc != nil {
+		geoCtx, geoCancel := context.WithTimeout(ctx, 15*time.Second)
+		defer geoCancel()
+
+		ips := geo.ExtractIPs(allPeers)
+
+		if quiet {
+			locations = loc.Locate(geoCtx, ips)
+		} else {
+			_ = clog.Shimmer("geolocating peers").
+				Str("source", cfg.GeoProvider).
+				Elapsed("duration").
+				Wait(geoCtx, func(ctx context.Context) error {
+					locations = loc.Locate(ctx, ips)
+					return nil
+				}).Msg("geolocated peers")
+		}
+
+		if len(locations) == 0 && len(ips) > 0 {
+			clog.Warn().Msg("geo lookup failed, returning peers without enrichment")
+		}
+	}
+
+	// Build enriched peers.
+	enriched := make([]enrichedPeer, 0, len(allPeers))
+	for _, p := range allPeers {
+		ep := enrichedPeer{Address: p}
+		if _, hostPort, ok := strings.Cut(p, "@"); ok {
+			if host, _, err := net.SplitHostPort(hostPort); err == nil {
+				if geoLoc, ok := locations[host]; ok {
+					ep.CountryCode = geoLoc.CountryCode
+					ep.Country = geoLoc.Country
+				}
+			}
+		}
+		enriched = append(enriched, ep)
 	}
 
 	data := peerResult{
 		Network: network,
-		Peers:   allPeers,
-		Count:   len(allPeers),
+		Peers:   enriched,
+		Count:   len(enriched),
 	}
 
 	ft := output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format})
@@ -445,11 +515,27 @@ func runFind(cmd *cobra.Command, args []string) error {
 		Format:  ft,
 		PlainFunc: func(w io.Writer) error {
 			if ft == output.FormatCSV {
-				fmt.Fprintln(w, strings.Join(allPeers, ","))
+				addrs := make([]string, 0, len(enriched))
+				for _, ep := range enriched {
+					addrs = append(addrs, ep.Address)
+				}
+				fmt.Fprintln(w, strings.Join(addrs, ","))
 				return nil
 			}
-			for _, p := range allPeers {
-				fmt.Fprintln(w, p)
+			noColor, _ := cmd.Flags().GetBool("no-color")
+			var th *theme.Theme
+			if !det.Active && !noColor && terminal.Is(os.Stdout) {
+				th = theme.Default()
+			}
+
+			for _, ep := range enriched {
+				if ep.CountryCode != "" && th != nil {
+					fmt.Fprintf(w, "%s %s\n", ep.Address, th.Dim.Render("("+ep.CountryCode+")"))
+				} else if ep.CountryCode != "" {
+					fmt.Fprintf(w, "%s (%s)\n", ep.Address, ep.CountryCode)
+				} else {
+					fmt.Fprintln(w, ep.Address)
+				}
 			}
 			return nil
 		},
@@ -485,15 +571,12 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 	if isQuiet(cmd) {
 		if err := fetchChains(ctx); err != nil {
-			if det.Active {
-				return agentError(w, "list", err)
-			}
 			return fmt.Errorf("unable to reach Polkachu API: %w", err)
 		}
 	} else {
 		if err := clog.Shimmer("fetching networks").
 			Elapsed("duration").
-			Wait(ctx, fetchChains).Send(); err != nil {
+			Wait(ctx, fetchChains).Msg("fetched networks"); err != nil {
 			return fmt.Errorf("unable to reach Polkachu API: %w", err)
 		}
 	}
@@ -735,18 +818,16 @@ func agentGuideCmd() *cobra.Command {
 	}
 }
 
-// agentError writes a structured error envelope to w and returns the
-// original error so the process exits with a non-zero code.
-func agentError(w io.Writer, command string, err error) error {
+// agentError writes a structured error envelope to w.
+func agentError(w io.Writer, err error) {
 	code := 1
 	if _, ok := errors.AsType[*polkachu.NotFoundError](err); ok {
 		code = 404
 	}
-	env := agent.Error(command, code, err.Error(), "")
+	env := agent.Error("error", code, err.Error(), "")
 	enc := json.NewEncoder(w)
 	enc.SetEscapeHTML(false)
 	_ = enc.Encode(env)
-	return err
 }
 
 // --- Update subcommand ---

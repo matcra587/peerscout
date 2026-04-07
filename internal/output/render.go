@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 
+	"github.com/gechr/clog"
 	"github.com/matcra587/peerscout/internal/agent"
 )
 
@@ -31,10 +32,8 @@ func Render(w io.Writer, opts RenderOpts) error {
 		return enc.Encode(env)
 
 	case FormatJSON:
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		enc.SetEscapeHTML(false)
-		return enc.Encode(opts.Data)
+		clog.Print().JSON(opts.Data)
+		return nil
 
 	default:
 		if opts.PlainFunc != nil {
