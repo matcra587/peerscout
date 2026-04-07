@@ -60,11 +60,14 @@ Compiled defaults (empty / 5) < TOML file < env vars < CLI flags.
 
 ```
 internal/discovery/    New — pipeline: fetch → dedup → enrich → filter → retry
-internal/filter/       New — ByCountry (country filtering logic)
 internal/polkachu/     Remove AccumulatePeers; keep as thin API client
 internal/config/       Add Country []string, MaxRetries int
 main.go / config.go    Wire --country, --max-retries, call discovery.Run
 ```
+
+No separate `internal/filter/` package.
+Country filtering lives as an unexported helper in `internal/discovery/`.
+Extract to its own package when a second filter type arrives.
 
 ### `internal/discovery/`
 
@@ -75,12 +78,23 @@ Replaces the accumulation logic currently in `polkachu.AccumulatePeers` and the 
 // Run executes the discovery pipeline: fetch → dedup → enrich → filter → retry.
 func Run(ctx context.Context, opts Opts) (*Result, error)
 
+// Fetcher abstracts peer fetching for testability.
+// polkachu.Client satisfies this interface.
+type Fetcher interface {
+    FetchLivePeers(ctx context.Context, network string) (polkachu.ChainLivePeers, error)
+}
+
+// Locator looks up geographic locations for IP addresses.
+type Locator interface {
+    Locate(ctx context.Context, ips []string) map[string]geo.Location
+}
+
 type Opts struct {
-    Client     *polkachu.Client
+    Fetcher    Fetcher
     Network    string
     Count      int
     MaxRetries int
-    Locator    locator
+    Locator    Locator
     Countries  []string
     OnProgress ProgressFunc
 }
@@ -92,33 +106,32 @@ type Result struct {
 }
 ```
 
+Country filtering is an unexported helper within this package:
+
+```go
+// filterByCountry returns peers whose CountryCode is in the allowed set.
+// Peers with an empty CountryCode are excluded.
+// The codes parameter is pre-normalised to uppercase by the caller.
+func filterByCountry(peers []EnrichedPeer, codes []string) []EnrichedPeer
+```
+
 Each round:
 
-1. Call `client.FetchLivePeers` (two parallel fetches, as today).
+1. Call `Fetcher.FetchLivePeers` (two parallel fetches, as today).
 2. Deduplicate against a running `seen` set.
 3. Enrich new peers with geo data via `Locator`.
 4. Filter by country (if countries are set).
 5. Append matches to the result set.
-6. If `len(result) >= count` or round yielded zero new peers, stop.
-7. If round count hits `maxRetries`, stop.
+6. Stop if `len(result) >= count`.
+7. Stop if the round yielded zero new unique peers from the API (pre-filter) — the API is exhausted.
+8. Stop if round count hits `maxRetries`.
+
+Step 7 distinguishes "API exhausted" (no new unique peers before filtering) from "filter rejected everything" (new peers arrived but none matched).
+The loop continues in the latter case — there may be matching peers in the next batch.
 
 When the loop ends with fewer matches than requested, log a warning:
 `found 3 of 10 requested peers after 5 retries`.
-
-### `internal/filter/`
-
-```go
-package filter
-
-// ByCountry returns peers whose CountryCode is in the allowed set.
-// Peers with an empty CountryCode are excluded.
-func ByCountry(peers []EnrichedPeer, codes []string) []EnrichedPeer
-```
-
-The `codes` parameter is pre-normalised to uppercase by the caller.
-The function builds a set from `codes` for O(1) lookup.
-
-This package will later hold `ByLatency` and other filter functions.
+The default `maxRetries` of 5 is best-effort; users can increase via `--max-retries` if needed.
 
 ### `internal/polkachu/` changes
 
@@ -138,6 +151,8 @@ type Config struct {
 Defaults: `Country` empty (no filter), `MaxRetries` 5.
 
 Env var `PEERSCOUT_COUNTRY` needs a comma-split transform in the env provider callback since koanf does not split comma-separated strings into slices automatically.
+The split must happen in the env provider callback (not post-unmarshal) so koanf's unmarshaller receives a `[]string`, not a plain string.
+A dedicated test must verify that `PEERSCOUT_COUNTRY=GB,US` round-trips to `[]string{"GB", "US"}`.
 
 ### `config.go` changes
 
@@ -155,7 +170,7 @@ Env var `PEERSCOUT_COUNTRY` needs a comma-split transform in the env provider ca
 - Mark `--country` mutually exclusive with `--seed-node`, `--state-sync`, `--addrbook`.
 - Validate `--country` + `geo_provider=none` → hard error.
 - Replace the `AccumulatePeers` call and geo enrichment block with `discovery.Run`.
-- Move the `locator` interface to `internal/discovery/` (it is consumed there now).
+- Remove the `locator` interface from `main.go` — replaced by `discovery.Locator` (consumed in discovery).
 - Move `enrichedPeer` to `internal/discovery/` as `EnrichedPeer` (the discovery package builds and returns them).
 - Keep `peerResult` in `main.go` — it is a presentation type for output rendering.
 
@@ -190,17 +205,22 @@ INF discovered peers network=dydx duration=1s found=11 duplicates=1
 
 ## Testing
 
-### `internal/filter/`
-
-- `TestByCountry`: table-driven — matches, no matches, empty country code excluded, case already normalised.
-
 ### `internal/discovery/`
+
+Tests use mock `Fetcher` and `Locator` implementations (the interfaces defined in this package).
 
 - `TestRun_NoFilter`: basic accumulation without country filter.
 - `TestRun_CountryFilter`: mock locator returns mixed countries, verify only matching peers returned.
+- `TestRun_FilterByCountry`: table-driven unit tests for the unexported helper — matches, no matches, empty country code excluded.
 - `TestRun_MaxRetriesExhausted`: verify loop stops at max retries and returns partial result.
 - `TestRun_DeduplicatesAcrossRounds`: same peer from multiple rounds counted once.
-- `TestRun_ZeroNewPeersStops`: loop exits when a round yields nothing new.
+- `TestRun_APIExhaustedStops`: loop exits when a round yields zero new unique peers (pre-filter).
+- `TestRun_FilterRejectsContinues`: loop continues when new peers arrive but none match the filter.
+
+### `internal/config/`
+
+- `TestLoad_CountryFromEnv`: verify `PEERSCOUT_COUNTRY=GB,US` round-trips to `[]string{"GB", "US"}`.
+- `TestLoad_MaxRetriesDefault`: verify default is 5.
 
 ### `main.go`
 
