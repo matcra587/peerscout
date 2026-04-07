@@ -7,8 +7,8 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/cli/go-gh/v2 v2.13.0
-	github.com/gechr/clib v0.2.11
-	github.com/gechr/clog v0.8.1
+	github.com/gechr/clib v0.3.1
+	github.com/gechr/clog v0.8.3
 	github.com/knadh/koanf/parsers/toml v0.1.0
 	github.com/knadh/koanf/providers/env v1.1.0
 	github.com/knadh/koanf/providers/file v1.2.1

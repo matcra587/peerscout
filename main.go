@@ -180,7 +180,7 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(updateCmd())
 
 	// Themed help rendering.
-	th := theme.New(
+	th := theme.Default().With(
 		theme.WithEnumStyle(theme.EnumStyleHighlightBoth),
 		theme.WithHelpRepeatEllipsisEnabled(true),
 	)
