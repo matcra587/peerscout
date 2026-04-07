@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -84,55 +85,55 @@ func configListCmd() *cobra.Command {
 			w := cmd.OutOrStdout()
 			format, _ := cmd.Flags().GetString("format")
 
-			switch output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format}) {
-			case output.FormatAgentJSON:
-				return output.RenderAgentJSON(w, "config list", entries, nil)
-			case output.FormatJSON:
-				clog.Print().JSON(entries)
-				return nil
-			}
-
-			rows := make([][]string, 0, len(entries))
-			for _, e := range entries {
-				rows = append(rows, []string{e.Key, e.Value, e.Source, e.Description})
-			}
-
-			noColor, _ := cmd.Flags().GetBool("no-color")
-			var th *theme.Theme
-			if !noColor && terminal.Is(os.Stdout) {
-				th = theme.Default()
-			}
-
-			plainStyle := lipgloss.NewStyle().Padding(0, 1)
-			headerStyle := plainStyle.Bold(true)
-			keyStyle := plainStyle
-			valueStyle := plainStyle
-			dimStyle := plainStyle
-			if th != nil {
-				keyStyle = th.Blue.Padding(0, 1)
-				dimStyle = th.Dim.Padding(0, 1)
-			}
-
-			t := table.New().
-				Border(lipgloss.HiddenBorder()).
-				Headers("Key", "Value", "Source", "Description").
-				StyleFunc(func(row, col int) lipgloss.Style {
-					if row == table.HeaderRow {
-						return headerStyle
+			ft := output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format})
+			return output.Render(w, output.RenderOpts{
+				Command: "config list",
+				Data:    entries,
+				Format:  ft,
+				PlainFunc: func(w io.Writer) error {
+					rows := make([][]string, 0, len(entries))
+					for _, e := range entries {
+						rows = append(rows, []string{e.Key, e.Value, e.Source, e.Description})
 					}
-					switch col {
-					case 0:
-						return keyStyle
-					case 2, 3:
-						return dimStyle
-					default:
-						return valueStyle
-					}
-				}).
-				Rows(rows...)
 
-			fmt.Fprintln(w, t.Render())
-			return nil
+					noColor, _ := cmd.Flags().GetBool("no-color")
+					var th *theme.Theme
+					if !noColor && terminal.Is(os.Stdout) {
+						th = theme.Default()
+					}
+
+					plainStyle := lipgloss.NewStyle().Padding(0, 1)
+					headerStyle := plainStyle.Bold(true)
+					keyStyle := plainStyle
+					valueStyle := plainStyle
+					dimStyle := plainStyle
+					if th != nil {
+						keyStyle = th.Blue.Padding(0, 1)
+						dimStyle = th.Dim.Padding(0, 1)
+					}
+
+					t := table.New().
+						Border(lipgloss.HiddenBorder()).
+						Headers("Key", "Value", "Source", "Description").
+						StyleFunc(func(row, col int) lipgloss.Style {
+							if row == table.HeaderRow {
+								return headerStyle
+							}
+							switch col {
+							case 0:
+								return keyStyle
+							case 2, 3:
+								return dimStyle
+							default:
+								return valueStyle
+							}
+						}).
+						Rows(rows...)
+
+					fmt.Fprintln(w, t.Render())
+					return nil
+				},
+			})
 		},
 	}
 }
@@ -162,7 +163,7 @@ func configGetCmd() *cobra.Command {
 			w := cmd.OutOrStdout()
 			if AgentFromContext(cmd).Active {
 				data := map[string]string{"key": args[0], "value": val}
-				return output.RenderAgentJSON(w, "config get", data, nil)
+				return output.Render(w, output.RenderOpts{Command: "config get", Data: data, Format: output.FormatAgentJSON})
 			}
 
 			fmt.Fprintln(w, val)
@@ -199,7 +200,7 @@ func configSetCmd() *cobra.Command {
 			}
 			if AgentFromContext(cmd).Active {
 				data := map[string]string{"key": key, "value": val}
-				return output.RenderAgentJSON(cmd.OutOrStdout(), "config set", data, nil)
+				return output.Render(cmd.OutOrStdout(), output.RenderOpts{Command: "config set", Data: data, Format: output.FormatAgentJSON})
 			}
 			return nil
 		},
@@ -237,7 +238,7 @@ func configUnsetCmd() *cobra.Command {
 			}
 			if AgentFromContext(cmd).Active {
 				data := map[string]string{"key": args[0]}
-				return output.RenderAgentJSON(cmd.OutOrStdout(), "config unset", data, nil)
+				return output.Render(cmd.OutOrStdout(), output.RenderOpts{Command: "config unset", Data: data, Format: output.FormatAgentJSON})
 			}
 			return nil
 		},
@@ -263,7 +264,7 @@ func configPathCmd() *cobra.Command {
 					"path":   path,
 					"exists": statErr == nil,
 				}
-				return output.RenderAgentJSON(w, "config path", data, nil)
+				return output.Render(w, output.RenderOpts{Command: "config path", Data: data, Format: output.FormatAgentJSON})
 			}
 
 			if statErr != nil {
@@ -383,14 +384,35 @@ func modifyConfigFile(cfgPath string, modify func(doc map[string]any)) error {
 }
 
 func encodeTOMLToFile(path string, doc map[string]any) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec // path from --config or XDG default
-	if err != nil {
-		return fmt.Errorf("opening config file: %w", err)
-	}
-	defer func() { _ = f.Close() }()
+	dir := filepath.Dir(path)
 
-	if err := toml.NewEncoder(f).Encode(doc); err != nil {
+	tmp, err := os.CreateTemp(dir, ".peerscout-config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+
+	tmpName := tmp.Name()
+
+	if err := toml.NewEncoder(tmp).Encode(doc); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
 		return fmt.Errorf("encoding config: %w", err)
+	}
+
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("setting permissions: %w", err)
+	}
+
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("closing temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpName, path); err != nil {
+		_ = os.Remove(tmpName)
+		return fmt.Errorf("renaming config file: %w", err)
 	}
 
 	clog.Info().Str("path", path).Msg("config updated")

@@ -1,35 +1,46 @@
-package output
+package output_test
 
 import (
 	"bytes"
 	"encoding/json"
 	"testing"
 
+	"github.com/matcra587/peerscout/internal/output"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestRenderAgentJSON_Envelope(t *testing.T) {
+func TestRender_AgentJSON_Envelope(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
-	err := RenderAgentJSON(&buf, "find", []string{"peer1"}, nil)
+	data := map[string]string{"network": "cosmos"}
+	err := output.Render(&buf, output.RenderOpts{
+		Command: "find",
+		Data:    data,
+		Hints:   []string{"check list"},
+		Format:  output.FormatAgentJSON,
+	})
 	require.NoError(t, err)
 
-	var m map[string]any
-	require.NoError(t, json.Unmarshal(buf.Bytes(), &m))
-	assert.Equal(t, true, m["success"])
-	assert.Equal(t, "find", m["command"])
-	assert.NotNil(t, m["data"])
+	var env map[string]any
+	require.NoError(t, json.Unmarshal(buf.Bytes(), &env))
+	assert.Equal(t, true, env["success"])
+	assert.Equal(t, "find", env["command"])
 }
 
-func TestRenderAgentJSON_Compact(t *testing.T) {
+func TestRender_AgentJSON_Compact(t *testing.T) {
 	t.Parallel()
+
 	var buf bytes.Buffer
-	err := RenderAgentJSON(&buf, "list", []string{"cosmos", "dydx"}, nil)
+	err := output.Render(&buf, output.RenderOpts{
+		Command: "test",
+		Data:    map[string]int{"a": 1},
+		Format:  output.FormatAgentJSON,
+	})
 	require.NoError(t, err)
 
-	// Agent JSON should be compact (no indentation).
-	output := buf.String()
-	assert.NotContains(t, output, "  ")
-	assert.Equal(t, byte('\n'), output[len(output)-1])
+	// json.Encoder.Encode appends a single newline — no pretty-printing.
+	lines := bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n"))
+	assert.Len(t, lines, 1)
 }

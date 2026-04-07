@@ -372,16 +372,16 @@ func runFind(cmd *cobra.Command, args []string) error {
 		}
 
 		data := map[string]any{"network": network, key: value}
-		switch output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format}) {
-		case output.FormatAgentJSON:
-			return output.RenderAgentJSON(w, "find", data, nil)
-		case output.FormatJSON:
-			clog.Print().JSON(data)
-			return nil
-		default:
-			fmt.Fprintln(w, value)
-		}
-		return nil
+		ft := output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format})
+		return output.Render(w, output.RenderOpts{
+			Command: "find",
+			Data:    data,
+			Format:  ft,
+			PlainFunc: func(w io.Writer) error {
+				fmt.Fprintln(w, value)
+				return nil
+			},
+		})
 	}
 
 	count := cfg.Count
@@ -438,20 +438,22 @@ func runFind(cmd *cobra.Command, args []string) error {
 		Count:   len(allPeers),
 	}
 
-	switch output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format}) {
-	case output.FormatAgentJSON:
-		return output.RenderAgentJSON(w, "find", data, nil)
-	case output.FormatJSON:
-		clog.Print().JSON(data)
-		return nil
-	case output.FormatCSV:
-		fmt.Fprintln(w, strings.Join(allPeers, ","))
-	default:
-		for _, p := range allPeers {
-			fmt.Fprintln(w, p)
-		}
-	}
-	return nil
+	ft := output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format})
+	return output.Render(w, output.RenderOpts{
+		Command: "find",
+		Data:    data,
+		Format:  ft,
+		PlainFunc: func(w io.Writer) error {
+			if ft == output.FormatCSV {
+				fmt.Fprintln(w, strings.Join(allPeers, ","))
+				return nil
+			}
+			for _, p := range allPeers {
+				fmt.Fprintln(w, p)
+			}
+			return nil
+		},
+	})
 }
 
 func listCmd() *cobra.Command {
@@ -497,25 +499,26 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 
 	format, _ := cmd.Flags().GetString("format")
-	isTTY := terminal.Is(os.Stdout)
 
-	switch output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format}) {
-	case output.FormatAgentJSON:
-		return output.RenderAgentJSON(w, "list", chains, nil)
-	case output.FormatJSON:
-		clog.Print().JSON(chains)
-		return nil
-	case output.FormatCSV:
-		fmt.Fprintln(w, strings.Join(chains, ","))
-	default:
-		var th *theme.Theme
-		noColor, _ := cmd.Flags().GetBool("no-color")
-		if !det.Active && !noColor && isTTY {
-			th = theme.Default()
-		}
-		return output.RenderColumns(w, chains, terminal.Width(os.Stdout), th)
-	}
-	return nil
+	ft := output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format})
+	return output.Render(w, output.RenderOpts{
+		Command: "list",
+		Data:    chains,
+		Format:  ft,
+		PlainFunc: func(w io.Writer) error {
+			if ft == output.FormatCSV {
+				fmt.Fprintln(w, strings.Join(chains, ","))
+				return nil
+			}
+			var th *theme.Theme
+			noColor, _ := cmd.Flags().GetBool("no-color")
+			isTTY := terminal.Is(os.Stdout)
+			if !det.Active && !noColor && isTTY {
+				th = theme.Default()
+			}
+			return output.RenderColumns(w, chains, terminal.Width(os.Stdout), th)
+		},
+	})
 }
 
 func versionCmd() *cobra.Command {
@@ -537,44 +540,51 @@ func versionCmd() *cobra.Command {
 func runVersion(cmd *cobra.Command, _ []string) error {
 	det := AgentFromContext(cmd)
 	w := cmd.OutOrStdout()
+	format, _ := cmd.Flags().GetString("format")
 
-	if det.Active {
-		data := map[string]string{
-			"version":  version.Version,
-			"commit":   version.Commit,
-			"branch":   version.Branch,
-			"built":    version.BuildTime,
-			"built_by": version.BuildBy,
-		}
-		return output.RenderAgentJSON(w, "version", data, nil)
+	data := map[string]string{
+		"version":  version.Version,
+		"commit":   version.Commit,
+		"branch":   version.Branch,
+		"built":    version.BuildTime,
+		"built_by": version.BuildBy,
 	}
 
-	short, _ := cmd.Flags().GetBool("short")
-	if short {
-		fmt.Fprintln(w, version.Version)
-		return nil
-	}
+	ft := output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format})
 
-	noColor, _ := cmd.Flags().GetBool("no-color")
-	var th *theme.Theme
-	if !noColor && terminal.Is(os.Stdout) {
-		th = theme.Default()
-	}
+	return output.Render(w, output.RenderOpts{
+		Command: "version",
+		Data:    data,
+		Format:  ft,
+		PlainFunc: func(w io.Writer) error {
+			short, _ := cmd.Flags().GetBool("short")
+			if short {
+				fmt.Fprintln(w, version.Version)
+				return nil
+			}
 
-	if th != nil {
-		fmt.Fprintf(w, "%s %s\n", th.Bold.Render("peerscout"), th.Green.Render(version.Version))
-		fmt.Fprintf(w, "  %s  %s\n", th.Dim.Render("commit:"), version.Commit)
-		fmt.Fprintf(w, "  %s  %s\n", th.Dim.Render("branch:"), version.Branch)
-		fmt.Fprintf(w, "  %s   %s\n", th.Dim.Render("built:"), version.BuildTime)
-		fmt.Fprintf(w, "  %s %s\n", th.Dim.Render("built by:"), version.BuildBy)
-	} else {
-		fmt.Fprintf(w, "peerscout %s\n", version.Version)
-		fmt.Fprintf(w, "  commit:  %s\n", version.Commit)
-		fmt.Fprintf(w, "  branch:  %s\n", version.Branch)
-		fmt.Fprintf(w, "  built:   %s\n", version.BuildTime)
-		fmt.Fprintf(w, "  built by: %s\n", version.BuildBy)
-	}
-	return nil
+			noColor, _ := cmd.Flags().GetBool("no-color")
+			var th *theme.Theme
+			if !noColor && terminal.Is(os.Stdout) {
+				th = theme.Default()
+			}
+
+			if th != nil {
+				fmt.Fprintf(w, "%s %s\n", th.Bold.Render("peerscout"), th.Green.Render(version.Version))
+				fmt.Fprintf(w, "  %s  %s\n", th.Dim.Render("commit:"), version.Commit)
+				fmt.Fprintf(w, "  %s  %s\n", th.Dim.Render("branch:"), version.Branch)
+				fmt.Fprintf(w, "  %s   %s\n", th.Dim.Render("built:"), version.BuildTime)
+				fmt.Fprintf(w, "  %s %s\n", th.Dim.Render("built by:"), version.BuildBy)
+			} else {
+				fmt.Fprintf(w, "peerscout %s\n", version.Version)
+				fmt.Fprintf(w, "  commit:  %s\n", version.Commit)
+				fmt.Fprintf(w, "  branch:  %s\n", version.Branch)
+				fmt.Fprintf(w, "  built:   %s\n", version.BuildTime)
+				fmt.Fprintf(w, "  built by: %s\n", version.BuildBy)
+			}
+			return nil
+		},
+	})
 }
 
 func completionHandler() complete.Handler {
@@ -656,11 +666,13 @@ func agentSchemaCmd() *cobra.Command {
 			schema := buildSchema(cmd.Root(), compact)
 			det := AgentFromContext(cmd)
 			w := cmd.OutOrStdout()
-			if det.Active {
-				return output.RenderAgentJSON(w, "agent schema", schema, nil)
-			}
-			clog.Print().JSON(schema)
-			return nil
+			format, _ := cmd.Flags().GetString("format")
+			ft := output.DetectFormat(output.FormatOpts{AgentMode: det.Active, Format: format})
+			return output.Render(w, output.RenderOpts{
+				Command: "agent schema",
+				Data:    schema,
+				Format:  ft,
+			})
 		},
 	}
 	cmd.Flags().Bool("compact", false, "Strip descriptions for smaller output")
@@ -731,8 +743,9 @@ func agentError(w io.Writer, command string, err error) error {
 		code = 404
 	}
 	env := agent.Error(command, code, err.Error(), "")
-	data, _ := json.Marshal(env)
-	_, _ = w.Write(append(data, '\n'))
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(env)
 	return err
 }
 
