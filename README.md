@@ -30,6 +30,7 @@ See [docs/installation.md](docs/installation.md) for details.
 ```bash
 peerscout find cosmos            # Fetch 5 peers with geolocation
 peerscout find cosmos -n 15      # Fetch 15 peers
+peerscout find cosmos -c GB,US   # Only peers in GB or US
 peerscout find cosmos -f csv     # Comma-separated for config files
 peerscout find cosmos -f json    # JSON with country codes
 peerscout find cosmos --seed-node    # Polkachu seed node
@@ -70,6 +71,28 @@ peerscout config set geo_token <token>      # Set ipinfo token
 peerscout config set geo_provider none      # Disable enrichment
 ```
 
+## Country Filtering
+
+Filter peers by country using ISO 3166-1 alpha-2 codes.
+Codes are case-insensitive and can be comma-separated or repeated.
+
+```bash
+peerscout find cosmos -c GB              # Only UK peers
+peerscout find cosmos -c GB,US           # UK or US peers
+peerscout find cosmos -c GB -c US        # Same, using repeated flags
+peerscout config set country GB,US       # Persist filter in config
+```
+
+When no peers match the country filter, peerscout retries up to
+`--max-retries` rounds (default 5) before exiting.
+
+```bash
+peerscout find cosmos -c DE --max-retries 10
+```
+
+Also configurable via env vars: `PEERSCOUT_COUNTRY=GB,US` and
+`PEERSCOUT_MAX_RETRIES=5`.
+
 ## Output Formats
 
 | Format | Description |
@@ -106,7 +129,7 @@ Feature parity with [py_peerscout](https://github.com/matcra587/py_peerscout),
 rebuilt incrementally:
 
 *   [x] Geolocation enrichment - country codes via country.is/ipinfo
-*   [ ] Geolocation filtering - filter peers by country/region
+*   [x] Geolocation filtering - filter peers by country/region
 *   [ ] Latency probing - ICMP with TCP fallback
 *   [ ] Peer validation - verify peers are reachable
 *   [ ] Daemon mode - systemd service with configurable interval
