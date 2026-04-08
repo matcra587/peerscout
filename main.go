@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"slices"
 	"strings"
@@ -21,7 +20,7 @@ import (
 	clogfx "github.com/gechr/clog/fx"
 	"github.com/matcra587/peerscout/internal/agent"
 	"github.com/matcra587/peerscout/internal/config"
-	"github.com/matcra587/peerscout/internal/geo"
+	"github.com/matcra587/peerscout/internal/discovery"
 	"github.com/matcra587/peerscout/internal/geo/countryis"
 	geoipinfo "github.com/matcra587/peerscout/internal/geo/ipinfo"
 	"github.com/matcra587/peerscout/internal/output"
@@ -42,21 +41,10 @@ const (
 	updateCheckKey contextKey = "update_check"
 )
 
-// locator looks up geographic locations for IP addresses.
-type locator interface {
-	Locate(ctx context.Context, ips []string) map[string]geo.Location
-}
-
-type enrichedPeer struct {
-	Address     string `json:"address"`
-	CountryCode string `json:"country_code,omitempty"`
-	Country     string `json:"country,omitempty"`
-}
-
 type peerResult struct {
-	Network string         `json:"network"`
-	Peers   []enrichedPeer `json:"peers"`
-	Count   int            `json:"count"`
+	Network string                   `json:"network"`
+	Peers   []discovery.EnrichedPeer `json:"peers"`
+	Count   int                      `json:"count"`
 }
 
 // AgentFromContext retrieves the agent DetectionResult from the command context.
@@ -282,6 +270,9 @@ func findCmd() *cobra.Command {
   # Return 10 peers
   $ peerscout find cosmos -n 10
 
+  # Filter by country
+  $ peerscout find cosmos --country GB,US
+
   # Get the seed node instead
   $ peerscout find cosmos --seed-node
 
@@ -313,7 +304,20 @@ func findCmd() *cobra.Command {
 	cobracli.Extend(cmd.Flags().Lookup("addrbook"), cobracli.FlagExtra{
 		Terse: "addrbook download URL",
 	})
+	cmd.Flags().StringSliceP("country", "c", nil, "Filter peers by country code, e.g. GB, US, DE (ISO 3166-1 alpha-2)")
+	cmd.Flags().Int("max-retries", 5, "Maximum discovery retry rounds")
+	cobracli.Extend(cmd.Flags().Lookup("country"), cobracli.FlagExtra{
+		Placeholder: "CODE",
+		Terse:       "country filter",
+	})
+	cobracli.Extend(cmd.Flags().Lookup("max-retries"), cobracli.FlagExtra{
+		Placeholder: "N",
+		Terse:       "max retry rounds",
+	})
 	cmd.MarkFlagsMutuallyExclusive("seed-node", "state-sync", "addrbook")
+	cmd.MarkFlagsMutuallyExclusive("country", "seed-node")
+	cmd.MarkFlagsMutuallyExclusive("country", "state-sync")
+	cmd.MarkFlagsMutuallyExclusive("country", "addrbook")
 
 	return cmd
 }
@@ -413,43 +417,23 @@ func runFind(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("count must be a positive integer, got %d", count)
 	}
 
-	var result *polkachu.AccumulateResult
-	var duplicates int
-	if quiet {
-		var err error
-		result, err = client.AccumulatePeers(ctx, network, count, nil)
-		if err != nil {
-			return fmt.Errorf("fetching peers: %w", err)
-		}
-		duplicates = result.Duplicates
-	} else {
-		if err := clog.Shimmer("discovering peers").
-			Str("network", network).
-			Elapsed("duration").
-			Int("target", count).
-			Progress(ctx, func(ctx context.Context, u *clogfx.Update) error {
-				var err error
-				result, err = client.AccumulatePeers(ctx, network, count, func(current int) {
-					u.Int("found", current).Send()
-				})
-				if result != nil {
-					duplicates = result.Duplicates
-				}
-				return err
-			}).
-			Int("duplicates", duplicates).
-			Msg("discovered peers"); err != nil {
-			return fmt.Errorf("fetching peers: %w", err)
-		}
+	maxRounds := cfg.MaxRetries
+	if cmd.Flags().Changed("max-retries") {
+		maxRounds, _ = cmd.Flags().GetInt("max-retries")
 	}
 
-	allPeers := result.Peers
-	if count > 0 && count < len(allPeers) {
-		allPeers = allPeers[:count]
+	// Resolve country filter.
+	countries := cfg.Country
+	if cmd.Flags().Changed("country") {
+		countries, _ = cmd.Flags().GetStringSlice("country")
+	}
+	// Normalise to uppercase.
+	for i, c := range countries {
+		countries[i] = strings.ToUpper(c)
 	}
 
-	// Geo enrichment.
-	var loc locator
+	// Build geo locator.
+	var loc discovery.Locator
 	switch cfg.GeoProvider {
 	case "ipinfo":
 		if cfg.GeoToken == "" {
@@ -463,44 +447,105 @@ func runFind(cmd *cobra.Command, args []string) error {
 		loc = countryis.New()
 	}
 
-	var locations map[string]geo.Location
-	if loc != nil {
-		geoCtx, geoCancel := context.WithTimeout(ctx, 15*time.Second)
-		defer geoCancel()
-
-		ips := geo.ExtractIPs(allPeers)
-
-		if quiet {
-			locations = loc.Locate(geoCtx, ips)
-		} else {
-			_ = clog.Shimmer("geolocating peers").
-				Str("source", cfg.GeoProvider).
-				Elapsed("duration").
-				Wait(geoCtx, func(ctx context.Context) error {
-					locations = loc.Locate(ctx, ips)
-					return nil
-				}).Msg("geolocated peers")
-		}
-
-		if len(locations) == 0 && len(ips) > 0 {
-			clog.Warn().Msg("geo lookup failed, returning peers without enrichment")
-		}
+	// Validate: country filter requires a working geo provider.
+	if len(countries) > 0 && loc == nil {
+		return errors.New("cannot filter by country without a geo provider — set geo_provider or remove --country")
 	}
 
-	// Build enriched peers.
-	enriched := make([]enrichedPeer, 0, len(allPeers))
-	for _, p := range allPeers {
-		ep := enrichedPeer{Address: p}
-		if _, hostPort, ok := strings.Cut(p, "@"); ok {
-			if host, _, err := net.SplitHostPort(hostPort); err == nil {
-				if geoLoc, ok := locations[host]; ok {
-					ep.CountryCode = geoLoc.CountryCode
-					ep.Country = geoLoc.Country
+	// Run discovery pipeline.
+	var result *discovery.Result
+	filtering := len(countries) > 0
+	if quiet {
+		var err error
+		result, err = discovery.Run(ctx, discovery.Opts{
+			Fetcher:   client,
+			Network:   network,
+			Count:     count,
+			MaxRounds: maxRounds,
+			Locator:   loc,
+			Countries: countries,
+		})
+		if err != nil {
+			return fmt.Errorf("discovering peers: %w", err)
+		}
+	} else {
+		var discoverErr error
+		var duplicates int
+
+		shimmer := clog.Shimmer("discovering peers").
+			Str("network", network).
+			Elapsed("duration")
+
+		if filtering {
+			_ = shimmer.Progress(ctx, func(ctx context.Context, u *clogfx.Update) error {
+				result, discoverErr = discovery.Run(ctx, discovery.Opts{
+					Fetcher:   client,
+					Network:   network,
+					Count:     count,
+					MaxRounds: maxRounds,
+					Locator:   loc,
+					Countries: countries,
+					OnProgress: func(found, r int) {
+						u.Str("found", fmt.Sprintf("%d/%d", found, count)).
+							Str("rounds", fmt.Sprintf("%d/%d", r, maxRounds)).
+							Send()
+					},
+				})
+				if result != nil {
+					duplicates = result.Duplicates
 				}
-			}
+				return discoverErr
+			}).
+				Int("duplicates", duplicates).
+				Msg("discovered peers")
+		} else {
+			_ = shimmer.Progress(ctx, func(ctx context.Context, u *clogfx.Update) error {
+				result, discoverErr = discovery.Run(ctx, discovery.Opts{
+					Fetcher:   client,
+					Network:   network,
+					Count:     count,
+					MaxRounds: maxRounds,
+					Locator:   loc,
+					OnProgress: func(found, _ int) {
+						u.Int("found", found).Send()
+					},
+				})
+				if result != nil {
+					duplicates = result.Duplicates
+				}
+				return discoverErr
+			}).
+				Int("duplicates", duplicates).
+				Msg("discovered peers")
 		}
-		enriched = append(enriched, ep)
+
+		if discoverErr != nil {
+			return fmt.Errorf("discovering peers: %w", discoverErr)
+		}
 	}
+
+	if result == nil {
+		result = &discovery.Result{}
+	}
+
+	if filtering && len(result.Peers) < count {
+		warn := clog.Warn()
+		switch {
+		case len(result.Peers) == 0 && result.APIExhausted:
+			warn.Strs("country", countries).
+				Msg("no peers found matching country filter — the API has no peers in that country")
+		case len(result.Peers) == 0:
+			warn.Strs("country", countries).
+				Int("rounds", result.Rounds).
+				Msg("no peers found matching country filter")
+		default:
+			warn.Str("found", fmt.Sprintf("%d/%d", len(result.Peers), count)).
+				Int("rounds", result.Rounds).
+				Msg("fewer peers matched the country filter than requested")
+		}
+	}
+
+	enriched := result.Peers
 
 	data := peerResult{
 		Network: network,
