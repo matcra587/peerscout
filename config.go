@@ -286,14 +286,18 @@ func configPathCmd() *cobra.Command {
 
 var configKeys = []string{
 	"count",
+	"country",
 	"geo_provider",
 	"geo_token",
+	"max_retries",
 }
 
 var configDescriptions = map[string]string{ //nolint:gosec // key names, not credentials
 	"count":        "Number of peers to return",
+	"country":      "Country codes to filter by (ISO 3166-1 alpha-2)",
 	"geo_provider": "Geolocation provider (countryis, ipinfo, none)",
 	"geo_token":    "API token for geolocation provider",
+	"max_retries":  "Maximum discovery retry rounds",
 }
 
 func parseConfigValue(key, val string) (any, error) {
@@ -310,9 +314,34 @@ func parseConfigValue(key, val string) (any, error) {
 			return nil, fmt.Errorf("unknown geo provider %q — valid: %s", val, strings.Join(valid, ", "))
 		}
 		return val, nil
+	case "max_retries":
+		n, err := strconv.Atoi(val)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("max_retries must be a positive integer, got %s", val)
+		}
+		return n, nil
+	case "country":
+		codes := strings.Split(val, ",")
+		for i, c := range codes {
+			c = strings.TrimSpace(strings.ToUpper(c))
+			if len(c) != 2 || !isAlpha(c) {
+				return nil, fmt.Errorf("invalid country code %q — must be 2-letter ISO 3166-1 alpha-2", c)
+			}
+			codes[i] = c
+		}
+		return codes, nil
 	default:
 		return val, nil
 	}
+}
+
+func isAlpha(s string) bool {
+	for _, r := range s {
+		if r < 'A' || r > 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 func completeConfigKeys(_ *cobra.Command, _ []string, _ string) ([]string, cobra.ShellCompDirective) {
@@ -322,8 +351,10 @@ func completeConfigKeys(_ *cobra.Command, _ []string, _ string) ([]string, cobra
 func configToMap(cfg config.Config) map[string]string {
 	return map[string]string{
 		"count":        strconv.Itoa(cfg.Count),
+		"country":      strings.Join(cfg.Country, ","),
 		"geo_provider": cfg.GeoProvider,
 		"geo_token":    cfg.GeoToken,
+		"max_retries":  strconv.Itoa(cfg.MaxRetries),
 	}
 }
 

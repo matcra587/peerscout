@@ -10,6 +10,62 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParseConfigValue_Country(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		input   string
+		want    any
+		wantErr bool
+	}{
+		{name: "valid single", input: "GB", want: []string{"GB"}},
+		{name: "valid multiple", input: "gb,us", want: []string{"GB", "US"}},
+		{name: "trims spaces", input: " DE , FR ", want: []string{"DE", "FR"}},
+		{name: "invalid length", input: "GBR", wantErr: true},
+		{name: "invalid chars", input: "G1", wantErr: true},
+		{name: "empty string", input: "", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseConfigValue("country", tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestParseConfigValue_MaxRetries(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		input   string
+		want    any
+		wantErr bool
+	}{
+		{name: "valid", input: "10", want: 10},
+		{name: "zero", input: "0", wantErr: true},
+		{name: "negative", input: "-1", wantErr: true},
+		{name: "not a number", input: "abc", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseConfigValue("max_retries", tt.input)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestModifyConfigFile_Roundtrip(t *testing.T) {
 	t.Parallel()
 

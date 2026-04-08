@@ -27,6 +27,10 @@ type Config struct {
 	// Geolocation
 	GeoProvider string `koanf:"geo_provider"`
 	GeoToken    string `koanf:"geo_token"`
+
+	// Filtering
+	Country    []string `koanf:"country"`
+	MaxRetries int      `koanf:"max_retries"`
 }
 
 // Defaults returns a Config with compiled defaults.
@@ -35,6 +39,7 @@ func Defaults() Config {
 		Count:       5,
 		LogFormat:   "auto",
 		GeoProvider: "countryis",
+		MaxRetries:  5,
 	}
 }
 
@@ -62,8 +67,16 @@ func Load(configPath string, flags *pflag.FlagSet) (Config, error) {
 	}
 
 	// 3. Environment variables (PEERSCOUT_ prefix)
-	err := k.Load(env.Provider("PEERSCOUT_", ".", func(s string) string {
-		return strings.ToLower(strings.TrimPrefix(s, "PEERSCOUT_"))
+	err := k.Load(env.ProviderWithValue("PEERSCOUT_", ".", func(key, value string) (string, any) {
+		key = strings.ToLower(strings.TrimPrefix(key, "PEERSCOUT_"))
+		if key == "country" && value != "" {
+			parts := strings.Split(value, ",")
+			for i, p := range parts {
+				parts[i] = strings.TrimSpace(strings.ToUpper(p))
+			}
+			return key, parts
+		}
+		return key, value
 	}), nil)
 	if err != nil {
 		return Config{}, fmt.Errorf("loading env vars: %w", err)
