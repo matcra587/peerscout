@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/gechr/clog"
@@ -160,87 +159,6 @@ func (c *Client) doGet(ctx context.Context, path string, target any) error {
 	}
 
 	return nil
-}
-
-// AccumulateResult holds the result of peer accumulation.
-type AccumulateResult struct {
-	Peers      []string
-	Duplicates int
-}
-
-// ProgressFunc is called with the current unique peer count during accumulation.
-type ProgressFunc func(current int)
-
-// AccumulatePeers fetches peers across multiple parallel requests until
-// the desired count is reached or no new peers are found. Results are
-// deduplicated by peer string. If onProgress is non-nil, it is called
-// after each round with the current unique count.
-func (c *Client) AccumulatePeers(ctx context.Context, network string, desired int, onProgress ProgressFunc) (*AccumulateResult, error) {
-	seen := make(map[string]struct{})
-	var peers []string
-	duplicates := 0
-
-	for len(peers) < desired {
-		var (
-			mu      sync.Mutex
-			results []ChainLivePeers
-			errs    []error
-			wg      sync.WaitGroup
-		)
-
-		// Two parallel fetches per round.
-		for range 2 {
-			wg.Go(func() {
-				resp, err := c.FetchLivePeers(ctx, network)
-				mu.Lock()
-				defer mu.Unlock()
-				if err != nil {
-					errs = append(errs, err)
-					return
-				}
-				results = append(results, resp)
-			})
-		}
-		wg.Wait()
-
-		// If all fetches failed, return what we have or the error.
-		if len(results) == 0 {
-			if len(peers) > 0 {
-				clog.Debug().Int("accumulated", len(peers)).Msg("partial results after API error")
-				break
-			}
-			return nil, errors.Join(errs...)
-		}
-
-		newCount := 0
-		for _, r := range results {
-			for _, p := range append(r.LivePeers, r.PolkachuPeer) {
-				if p == "" {
-					continue
-				}
-				if _, ok := seen[p]; ok {
-					duplicates++
-					continue
-				}
-				seen[p] = struct{}{}
-				peers = append(peers, p)
-				newCount++
-			}
-		}
-
-		clog.Debug().Int("new", newCount).Int("total", len(peers)).Int("duplicates", duplicates).Msg("accumulated peers")
-
-		if onProgress != nil {
-			onProgress(len(peers))
-		}
-
-		// No new peers found - API is returning duplicates, stop.
-		if newCount == 0 {
-			break
-		}
-	}
-
-	return &AccumulateResult{Peers: peers, Duplicates: duplicates}, nil
 }
 
 func parseRetryAfter(header string) time.Duration {

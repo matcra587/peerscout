@@ -169,59 +169,6 @@ func TestGet_RateLimitExhausted(t *testing.T) {
 	assert.Contains(t, err.Error(), "rate limited")
 }
 
-func TestAccumulatePeers_Deduplication(t *testing.T) {
-	t.Parallel()
-
-	call := 0
-	mux := http.NewServeMux()
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-
-	mux.HandleFunc("GET /chains/cosmos/live_peers", func(w http.ResponseWriter, _ *http.Request) {
-		call++
-		switch {
-		case call <= 2:
-			_, _ = w.Write([]byte(`{"network":"cosmos","polkachu_peer":"p0@1.1.1.1:26656","live_peers":["p1@2.2.2.2:26656","p2@3.3.3.3:26656"]}`))
-		default:
-			_, _ = w.Write([]byte(`{"network":"cosmos","polkachu_peer":"p0@1.1.1.1:26656","live_peers":["p3@4.4.4.4:26656","p4@5.5.5.5:26656"]}`))
-		}
-	})
-
-	client := polkachu.NewClientWithHTTP(server.Client(), server.URL)
-	result, err := client.AccumulatePeers(context.Background(), "cosmos", 5, nil)
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.GreaterOrEqual(t, len(result.Peers), 5)
-	assert.Positive(t, result.Duplicates)
-}
-
-func TestAccumulatePeers_PartialOnError(t *testing.T) {
-	t.Parallel()
-
-	call := 0
-	mux := http.NewServeMux()
-	server := httptest.NewServer(mux)
-	t.Cleanup(server.Close)
-
-	mux.HandleFunc("GET /chains/cosmos/live_peers", func(w http.ResponseWriter, _ *http.Request) {
-		call++
-		if call <= 2 {
-			_, _ = w.Write([]byte(`{"network":"cosmos","polkachu_peer":"","live_peers":["p1@1.1.1.1:26656"]}`))
-			return
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte(`{"success":false,"message":"boom"}`))
-	})
-
-	client := polkachu.NewClientWithHTTP(server.Client(), server.URL)
-	result, err := client.AccumulatePeers(context.Background(), "cosmos", 100, nil)
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.NotEmpty(t, result.Peers)
-}
-
 func TestChainDetail_PathEscaping(t *testing.T) {
 	t.Parallel()
 
