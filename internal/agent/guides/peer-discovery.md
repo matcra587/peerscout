@@ -2,7 +2,7 @@
 
 ## Finding peers
 
-```
+```bash
 peerscout find <network>
 peerscout find cosmos
 peerscout find dydx -n 10
@@ -23,7 +23,7 @@ Default count is 5. Use `-n` to request more.
 
 These flags are mutually exclusive with each other:
 
-```
+```bash
 peerscout find cosmos --seed-node
 peerscout find cosmos --state-sync
 peerscout find cosmos --addrbook
@@ -42,13 +42,13 @@ API calls.
 
 Fetch peers and paste into a node's config.toml:
 
-```
+```bash
 peerscout find cosmos -f csv
 ```
 
 Check if a network is supported before fetching:
 
-```
+```bash
 peerscout list
 peerscout find dydx
 ```
@@ -65,7 +65,7 @@ peerscout find dydx
 
 ## Rules
 
-- `--seed-node`, `--state-sync` and `--addrbook` are mutually exclusive
-- Count must be a positive integer
-- Unknown networks return an error listing valid alternatives
-- The `-f` flag applies to all output modes including seed/state-sync/addrbook
+*   `--seed-node`, `--state-sync` and `--addrbook` are mutually exclusive
+*   Count must be a positive integer
+*   Unknown networks return an error listing valid alternatives
+*   The `-f` flag applies to all output modes including seed/state-sync/addrbook

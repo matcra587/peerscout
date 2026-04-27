@@ -2,7 +2,7 @@
 
 ## Listing supported networks
 
-```
+```bash
 peerscout list
 peerscout list -f json
 peerscout list -f csv
@@ -26,6 +26,6 @@ as chains are added or removed.
 
 ## Rules
 
-- No arguments or flags beyond `--format`
-- The default column layout adapts to terminal width
-- Piped output (non-TTY) prints one network per line, no colour
+*   No arguments or flags beyond `--format`
+*   The default column layout adapts to terminal width
+*   Piped output (non-TTY) prints one network per line, no colour

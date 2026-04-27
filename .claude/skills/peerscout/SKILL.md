@@ -16,9 +16,9 @@ mode automatically. No extra flags needed.
 
 Agent mode changes:
 
-- Output becomes JSON wrapped in an envelope
-- Spinners and logs are suppressed
-- Colours are disabled
+*   Output becomes JSON wrapped in an envelope
+*   Spinners and logs are suppressed
+*   Colours are disabled
 
 ## Envelope format
 
@@ -42,7 +42,7 @@ Read `data` directly from the JSON output.
 
 Before guessing at flags, use these commands:
 
-```
+```bash
 peerscout agent schema            # JSON schema of all commands and flags
 peerscout agent schema --compact  # Same, without descriptions (smaller)
 peerscout agent guide <name>      # Embedded workflow guide (markdown)
@@ -54,7 +54,7 @@ Available guides: `peer-discovery`, `networks`, `configuration`.
 
 ### Fetch peers
 
-```
+```bash
 peerscout find <network>
 peerscout find cosmos
 peerscout find celestia -n 10
@@ -76,7 +76,7 @@ Response shapes by variant:
 
 These flags are mutually exclusive:
 
-```
+```bash
 peerscout find cosmos --seed-node
 peerscout find cosmos --state-sync
 peerscout find cosmos --addrbook
@@ -88,7 +88,7 @@ output before parsing.
 
 ### List supported networks
 
-```
+```bash
 peerscout list
 ```
 
@@ -104,9 +104,10 @@ envelope, then join with commas for the `persistent_peers` field.
 Run `peerscout list`, check whether the network name appears in `data`.
 
 **Full node bootstrap:**
-1. `peerscout find <network> -n 10` for persistent peers
-2. `peerscout find <network> --seed-node` for seeds
-3. `peerscout find <network> --state-sync` for state-sync RPC
+
+1.  `peerscout find <network> -n 10` for persistent peers
+2.  `peerscout find <network> --seed-node` for seeds
+3.  `peerscout find <network> --state-sync` for state-sync RPC
 
 ## Error handling
 
@@ -121,17 +122,17 @@ Check `success` before reading `data`. On error, read
 
 ## Common mistakes
 
-- NEVER pass `--quiet`, `--no-color` or `--agent` - agent mode
+*   NEVER pass `--quiet`, `--no-color` or `--agent` - agent mode
   sets all three automatically via env detection.
-- NEVER pass `-f` - agent mode forces the JSON envelope regardless.
-- NEVER combine `--seed-node`, `--state-sync` and `--addrbook` -
+*   NEVER pass `-f` - agent mode forces the JSON envelope regardless.
+*   NEVER combine `--seed-node`, `--state-sync` and `--addrbook` -
   they are mutually exclusive and Cobra rejects the command.
-- NEVER assume a specific peer count in one call - Polkachu returns
+*   NEVER assume a specific peer count in one call - Polkachu returns
   up to 5 random peers per request. peerscout accumulates across
   calls, so `-n 10` works but takes 2-3 requests.
 
 ## Rules
 
-- Network names are lowercase (e.g. `cosmos`, `celestia`, `dydx`).
-- Not all networks support all services. Inactive services produce
+*   Network names are lowercase (e.g. `cosmos`, `celestia`, `dydx`).
+*   Not all networks support all services. Inactive services produce
   empty output rather than an error.
