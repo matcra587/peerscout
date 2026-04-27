@@ -31,8 +31,6 @@ import (
 	"github.com/spf13/pflag"
 )
 
-var configPath string
-
 // contextKey is a package-local type for context value keys to avoid collisions.
 type contextKey string
 
@@ -136,7 +134,7 @@ func newRootCmd() *cobra.Command {
 
 	// Global flags
 	pf := root.PersistentFlags()
-	pf.StringVar(&configPath, "config", "", "Path to TOML config file")
+	pf.String("config", "", "Path to TOML config file")
 	pf.StringP("format", "f", "plain", "Output format: plain, json, csv")
 	pf.Bool("agent", false, "Force agent mode (JSON output, quiet mode)")
 	pf.BoolP("quiet", "q", false, "Suppress non-data output (spinners, logs)")
@@ -323,7 +321,8 @@ func findCmd() *cobra.Command {
 }
 
 func runFind(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load(configPath, cmd.Flags())
+	cfgPath, _ := cmd.Flags().GetString("config")
+	cfg, err := config.Load(cfgPath, cmd.Flags())
 	if err != nil {
 		return err
 	}

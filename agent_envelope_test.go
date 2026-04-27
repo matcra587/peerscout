@@ -35,9 +35,6 @@ func TestAgentMode_JSONEnvelope(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			// Each test needs its own config file to avoid the
-			// global configPath variable bleeding between parallel
-			// tests. An empty file is valid TOML.
 			cfgFile := filepath.Join(t.TempDir(), "config.toml")
 			require.NoError(t, os.WriteFile(cfgFile, nil, 0o600))
 

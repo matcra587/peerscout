@@ -48,13 +48,14 @@ func configListCmd() *cobra.Command {
 		Short:   "Show current settings",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := config.Load(configPath, nil)
+			cfgPath, _ := cmd.Flags().GetString("config")
+			cfg, err := config.Load(cfgPath, nil)
 			if err != nil {
 				return err
 			}
 
 			resolved := configToMap(cfg)
-			fileSources := configSourcesFromFile()
+			fileSources := configSourcesFromFile(cmd)
 
 			type configEntry struct {
 				Key         string `json:"key"`
@@ -71,7 +72,7 @@ func configListCmd() *cobra.Command {
 				}
 				source := "default"
 				if _, ok := fileSources[key]; ok {
-					source = configFilePath()
+					source = configFilePath(cmd)
 				}
 				if envVal := envSource(key); envVal != "" {
 					source = "PEERSCOUT_" + strings.ToUpper(key)
@@ -152,7 +153,8 @@ func configGetCmd() *cobra.Command {
 		Args:              cobra.ExactArgs(1),
 		ValidArgsFunction: completeConfigKeys,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(configPath, nil)
+			cfgPath, _ := cmd.Flags().GetString("config")
+			cfg, err := config.Load(cfgPath, nil)
 			if err != nil {
 				return err
 			}
@@ -195,7 +197,7 @@ func configSetCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			cfgPath := resolveConfigPath()
+			cfgPath := resolveConfigPath(cmd)
 			if err := modifyConfigFile(cfgPath, func(doc map[string]any) {
 				doc[key] = typed
 			}); err != nil {
@@ -225,7 +227,7 @@ func configUnsetCmd() *cobra.Command {
 			if !slices.Contains(configKeys, args[0]) {
 				return fmt.Errorf("unknown config key %s - valid keys: %s", args[0], strings.Join(configKeys, ", "))
 			}
-			cfgPath := resolveConfigPath()
+			cfgPath := resolveConfigPath(cmd)
 			var remaining int
 			err := modifyConfigFile(cfgPath, func(doc map[string]any) {
 				delete(doc, args[0])
@@ -258,7 +260,7 @@ func configPathCmd() *cobra.Command {
 		Short: "Print the config file path",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			path := resolveConfigPath()
+			path := resolveConfigPath(cmd)
 			w := cmd.OutOrStdout()
 
 			_, statErr := os.Stat(path)
@@ -358,8 +360,8 @@ func configToMap(cfg config.Config) map[string]string {
 	}
 }
 
-func configSourcesFromFile() map[string]struct{} {
-	path := resolveConfigPath()
+func configSourcesFromFile(cmd *cobra.Command) map[string]struct{} {
+	path := resolveConfigPath(cmd)
 	data, err := os.ReadFile(path) //nolint:gosec // path from --config or XDG default
 	if err != nil {
 		return nil
@@ -381,8 +383,8 @@ func envSource(key string) string {
 	return os.Getenv("PEERSCOUT_" + strings.ToUpper(key))
 }
 
-func configFilePath() string {
-	path := resolveConfigPath()
+func configFilePath(cmd *cobra.Command) string {
+	path := resolveConfigPath(cmd)
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return path
@@ -393,9 +395,9 @@ func configFilePath() string {
 	return path
 }
 
-func resolveConfigPath() string {
-	if configPath != "" {
-		return configPath
+func resolveConfigPath(cmd *cobra.Command) string {
+	if cfgPath, _ := cmd.Flags().GetString("config"); cfgPath != "" {
+		return cfgPath
 	}
 	p, err := dirs.DefaultConfigPath()
 	if err != nil {
